@@ -17,10 +17,10 @@ def save_json(d, file_path="output.json", indent=2, compact=False, encoding="utf
     else:
         seperators = (", ", ": ")
     with open(file_path, "w", encoding=encoding) as f:
-        json.dump(d, f, indent=indent, ensure_ascii=False, separators=seperators)
+        json.dump(d, f, indent=indent, ensure_ascii=False, separators=seperators, default=str)
 
 
-def load_json(file_path):
+def load_json(file_path) -> dict:
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -30,12 +30,12 @@ def save_text(text, file_path="output.txt"):
         f.write(text)
 
 
-def load_text(file_path, encoding="utf-8"):
+def load_text(file_path, encoding="utf-8") -> str:
     with open(file_path, "r", encoding=encoding) as f:
         return f.read()
 
 
-def load_list(filename):
+def load_list(filename) -> list:
     list = []
     with open(filename, "r") as file:
         for line in file:

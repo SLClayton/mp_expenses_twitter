@@ -1,21 +1,28 @@
-
+from math import exp
+from pathlib import Path
 from datetime import datetime, time
-from pprint import pprint
 from decimal import Decimal
 import requests
 import pandas as pd
 from typing import List
 from pandas import DataFrame
-from numpy import nan
+from numpy import e, nan
 from io import StringIO
 from pathlib import Path
 import random
+from operator import attrgetter
 
 from members import get_member
 from tools import *
+from aws_tools import *
+
+
+S3_BUCKET = "mpexpenses"
+S3_EXPENSE_QUEUE_KEY = "new_expenses_queue.json"
+S3_PREV_CLAIM_NUMBERS_KEY = "previous_claimNumbers.txt"
+
 
 CACHE_DIR = "csv_cache"
-
 EXPECTED_FIELDS = [
     "memberId", "year", "date", "claimNumber", "category", "expenseType", "shortDescription",
     "details", "journeyType", "journeyFrom", "journeyTo", "travel", "nights", "mileage",
@@ -191,6 +198,13 @@ class Expense:
         text += "."
         return text
 
+    def queue_format(self) -> dict:
+        datestring = date.today().strftime("%Y-%m-%d")
+        return {
+            "claimNumber": self.claim_number,
+            "discovery_date": datestring,
+            "claim": self.data
+        }
 
 def dummyExpense():
     claim_data = {}
@@ -238,18 +252,34 @@ def dummyExpense():
     return claimed_ranges
 
 
-def get_expenses_csv(year_code, force=False) -> str:
+def get_cached_csv_path(year_code):
+    return os.path.join(Path(__file__).parent.absolute(), CACHE_DIR, f"{year_code}.csv")
 
-    cache_file = os.path.join(CACHE_DIR, f"{year_code}.csv")
+
+def get_cache_csv(year_code) -> str:
+    cached_path = get_cached_csv_path(year_code)
+    try:
+        csv_text = load_text(cached_path)
+        print(f"Found cache file {cached_path} so using that.")
+        return csv_text
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def save_cache_csv(csv_string, year_code):
+    cached_path = get_cached_csv_path(year_code)
+    Path(cached_path).parent.mkdir(parents=True, exist_ok=True)
+    save_text(csv_string, cached_path)
+
+
+def get_expenses_csv(year_code, force=False) -> str:
 
     # Try find in cache
     if not force:
-        try:
-            csv_text = load_text(cache_file)
-            print(f"Found cache file {cache_file} so using that.")
+        csv_text = get_cache_csv(year_code)
+        if csv_text is not None:
             return csv_text
-        except FileNotFoundError:
-            pass
 
     # Go download file
     url = f"https://www.theipsa.org.uk/api/download?type=individualExpenses&year={year_code}"
@@ -259,7 +289,7 @@ def get_expenses_csv(year_code, force=False) -> str:
             print(f"Attempting to get {year_code} claim data from {url}")
             start = datetime.utcnow()
             resp = requests.get(url)
-            print(f"Downloaded {year_code} csv in {(datetime.utcnow()-start).total_seconds()} seconds.")
+            seconds = (datetime.utcnow()-start).total_seconds()
         except Exception as e:
             print(f"Exception {e} trying to get claims data for code {year_code}, trying again in 3 seconds.")
             time.sleep(3)
@@ -267,11 +297,11 @@ def get_expenses_csv(year_code, force=False) -> str:
 
     resp.encoding = "utf-8"
     csv_text = resp.text
+    print(f"Downloaded {year_code} csv of length {len(csv_text)} in {seconds} seconds.")
 
     # Save to cache
     if not in_aws():
-        Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
-        save_text(csv_text, cache_file)
+        save_cache_csv(csv_text, year_code)
 
     return csv_text
 
@@ -285,12 +315,63 @@ def get_expenses_dicts(year_code, force=False) -> List[dict]:
 
 
 def get_expenses(year_code, force=False) -> List[Expense]:
-    return [Expense(data) for data in get_expenses_dicts(year_code, force)]
+    exp_dicts = get_expenses_dicts(year_code, force)
+    min_date = None 
+    max_date = None
+    expenses = []
+    for exp_data in exp_dicts:
+        if all(field in exp_data for field in EXPECTED_FIELDS):
+            expense = Expense(exp_data)
+            min_date = min(e for e in [expense.date, min_date] if e is not None)
+            max_date = max(e for e in [expense.date, max_date] if e is not None)
+            expenses.append(expense)
+        else:
+            print(f"Invalid expense dict format found: {exp_data}")
+
+    print(f"Found {len(expenses)} expenses for year code '{year_code}' "
+          f"from {min_date} to {max_date}.")
+    return expenses
 
 
-exps = random.choices(get_expenses("20_21"), k=10)
+def get_queue_expenses() -> List[Expense]:
+    print(f"Getting expense queue from S3://{S3_BUCKET}/{S3_EXPENSE_QUEUE_KEY}")
+    start = datetime.utcnow()
+    queue_json = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
+    print(f"Downloaded queue from S3 in {(datetime.utcnow() - start).total_seconds()} seconds.")
+    expenses = sorted([Expense(data["item"]) for data in queue_json.values()], key=attrgetter("date"))
+    return expenses
 
-for e in exps:
-    print("--------------------------")
-    print(e.claim_text())
-    print("--------------------------")
+
+def get_previous_claim_numbers() -> set:
+    print(f"Getting previous claim numbers from S3://{S3_BUCKET}/{S3_PREV_CLAIM_NUMBERS_KEY}")
+    start = datetime.utcnow()
+    prev_claimnumbers_list = get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
+    seconds = (datetime.utcnow() - start).total_seconds()
+    print(f"Downloaded prev claimnumbers from S3 in {seconds} seconds.")
+    return set(prev_claimnumbers_list)
+
+
+def order_by_desc(expenses: List[Expense]) -> dict:
+    order = {}
+    for expense in expenses:
+        desc = "/".join([expense.category, expense.expense_type, str(expense.short_desc)])
+        try:
+            order[desc].append(expense)
+        except KeyError:
+            order[desc] = [expense]
+    print(f"Found {len(order)} groups from {len(expenses)} expenses.")
+    return order
+
+expenses = get_expenses("20_21")
+order = order_by_desc(expenses)
+
+order_less = {}
+for group, expense_list in order.items():
+    if len(expense_list) >= 100:
+        order_less[group] = expense_list
+
+
+
+save_json(order_less, "test3.json")
+
+
