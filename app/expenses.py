@@ -11,16 +11,12 @@ from io import StringIO
 from pathlib import Path
 import random
 from operator import attrgetter
+from numpy import percentile
 
 from members import get_member
 from tools import *
 from aws_tools import *
-
-
-S3_BUCKET = "mpexpenses"
-S3_EXPENSE_QUEUE_KEY = "new_expenses_queue.json"
-S3_PREV_CLAIM_NUMBERS_KEY = "previous_claimNumbers.txt"
-
+from vals import S3_BUCKET, S3_EXPENSE_QUEUE_KEY, S3_PREV_CLAIM_NUMBERS_KEY
 
 CACHE_DIR = "csv_cache"
 EXPECTED_FIELDS = [
@@ -67,9 +63,16 @@ class Expense:
     def __repr__(self):
         mp_string = self._member.name if self._member is not None else self.member_id
         return (
-            f"<Expense {self.date} no={self.claim_number} mp={mp_string}: "
-            f"{money_string(self.amount_claimed)} for {self.category} - {self.expense_type}>"
+            f"<Expense {self.claim_number} on {self.date} mp={mp_string}: "
+            f"{money_string(self.amount_claimed)} for {self.category} - {self.expense_type} - {self.short_desc}>"
         )
+
+    def group(self):
+        return "/".join([
+            str(self.category).strip(), 
+            str(self.expense_type).strip(), 
+            str(self.short_desc).strip()
+            ]).upper()
 
     def member(self):
         if "DUMMY" in self.claim_number:
@@ -206,6 +209,7 @@ class Expense:
             "claim": self.data
         }
 
+
 def dummyExpense():
     claim_data = {}
     claim_data["claimNumber"] = "0-DUMMY_CLAIM_" + rndstring(5)
@@ -333,13 +337,14 @@ def get_expenses(year_code, force=False) -> List[Expense]:
     return expenses
 
 
-def get_queue_expenses() -> List[Expense]:
+def get_expense_queue() -> List[Expense]:
     print(f"Getting expense queue from S3://{S3_BUCKET}/{S3_EXPENSE_QUEUE_KEY}")
-    start = datetime.utcnow()
     queue_json = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-    print(f"Downloaded queue from S3 in {(datetime.utcnow() - start).total_seconds()} seconds.")
-    expenses = sorted([Expense(data["item"]) for data in queue_json.values()], key=attrgetter("date"))
-    return expenses
+    return queue_json
+
+
+def get_queue_expenses():
+    return [Expense(data["claim"]) for data in get_expense_queue().values()]
 
 
 def get_previous_claim_numbers() -> set:
@@ -351,27 +356,23 @@ def get_previous_claim_numbers() -> set:
     return set(prev_claimnumbers_list)
 
 
-def order_by_desc(expenses: List[Expense]) -> dict:
+def order_by_group(expenses: List[Expense]) -> dict:
     order = {}
     for expense in expenses:
-        desc = "/".join([expense.category, expense.expense_type, str(expense.short_desc)])
         try:
-            order[desc].append(expense)
+            order[expense.group()].append(expense)
         except KeyError:
-            order[desc] = [expense]
+            order[expense.group()] = [expense]
     print(f"Found {len(order)} groups from {len(expenses)} expenses.")
     return order
 
-expenses = get_expenses("20_21")
-order = order_by_desc(expenses)
 
-order_less = {}
-for group, expense_list in order.items():
-    if len(expense_list) >= 100:
-        order_less[group] = expense_list
-
-
-
-save_json(order_less, "test3.json")
-
+def generate_group_thresholds(expenses, top_percentile, minimum_count):
+    ordered = order_by_group(expenses)
+    thresholds = {}
+    for group, exp_list in ordered.items():
+        amounts = [float(e.amount_claimed) for e in exp_list if e.amount_claimed > 0]
+        if len(amounts) >= minimum_count:
+            thresholds[group] = round(percentile(amounts, 100-top_percentile), 2)
+    return thresholds
 

@@ -1,11 +1,13 @@
 from datetime import datetime, date
 from math import exp
 from operator import attrgetter
+from typing import Dict
+from numpy import percentile
 
 from expenses import *
 from members import get_members_of_note_ids
+from vals import MEMBERS_OF_NOTE_IDS, GROUP_THRESHOLDS
 
-members_of_note_ids = get_members_of_note_ids()
 
 def get_year_codes():
     this_year = datetime.utcnow().year
@@ -23,29 +25,34 @@ def get_year_codes():
 
 
 def expense_filter(expense: Expense) -> bool:
-
+    
     # Basic filter
-    if (str(expense.claim_number) == "1" or 
-            expense.amount_claimed > 0):
+    if (str(expense.claim_number) == "1" or expense.amount_claimed <= 0):
         return False
 
     # If a popular MP, use their expense regardless
-    if expense.id in members_of_note_ids:
+    if expense.member_id in MEMBERS_OF_NOTE_IDS:
         return True
 
     # Ignore 1.00 rail booking fees
-    if ("BOOKING FEE" in expense.short_desc.upper() and expense.amount_claimed == 1):
+    if (expense.amount_claimed == 1 and "BOOKING FEE" in str(expense.short_desc).upper()):
         return False
 
-    # Use very small claims
-    if expense.amount_claimed < 6:
+    # Always use very small claims
+    if expense.amount_claimed < 4:
         return True
 
-    return True
+    # Check expense 'group' and if amount is above group threshold value
+    group = expense.group()
+    if group not in GROUP_THRESHOLDS:
+        return True
+    if expense.amount_claimed > GROUP_THRESHOLDS[group]:
+        return True
+
+    return False
 
 
 def save_new_expenses():
-
     # Get every expense from prev year to next years
     year_codes = get_year_codes()
     print(f"Using year codes {year_codes}")
@@ -53,20 +60,4 @@ def save_new_expenses():
     for year_code in year_codes:
         all_expenses += get_expenses(year_code, force=False)
     print(f"Found a total of {len(all_expenses)} expenses fron years {year_codes}")
-
-    # Filter list
-    prev_claim_numbers = get_previous_claim_numbers()
-
-    expenses = [e for e in all_expenses if
-                e.claim_number != "1" and
-                e.amount_claimed > Decimal(0) and
-                e.date > date(2021, 4, 26) and
-                e.claim_number not in prev_claim_numbers
-                ]
-
-    print(f"Found {len(expenses)}/{len(all_expenses)} expenses that claim > 0.00 and "
-          f"have a claim number that isn't '1' or in the previous claim set.")
-
-
-
 
