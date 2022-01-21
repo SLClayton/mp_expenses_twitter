@@ -10,13 +10,13 @@ from numpy import e, nan
 from io import StringIO
 from pathlib import Path
 import random
-from operator import attrgetter
 from numpy import percentile
+
 
 from members import get_member
 from tools import *
 from aws_tools import *
-from vals import S3_BUCKET, S3_EXPENSE_QUEUE_KEY, S3_PREV_CLAIM_NUMBERS_KEY
+from vals import GROUP_THRESHOLDS_KEY, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY, S3_EXPENSE_QUEUE_KEY, S3_PREV_CLAIM_NUMBERS_KEY, TRAVEL_THRESHOLDS_KEY
 
 CACHE_DIR = "csv_cache"
 EXPECTED_FIELDS = [
@@ -24,6 +24,10 @@ EXPECTED_FIELDS = [
     "details", "journeyType", "journeyFrom", "journeyTo", "travel", "nights", "mileage",
     "amountClaimed", "amountPaid", "amountNotPaid", "amountRepaid", "status", "reasonIfNotPaid",
     "supplyMonth", "supplyPeriod"]
+
+
+_GROUP_THRESHOLDS = None
+_TRAVEL_THRESHOLDS = None
 
 
 class Expense:
@@ -87,26 +91,29 @@ class Expense:
     def base_claim_number(self) -> int:
         return int(self.claim_number.split("-")[0])
 
-    def pricePerMile(self):
+    def price_per_mile(self):
         if self.mileage is None or self.mileage <= 0 or self.amount_claimed <= 0:
             return None
         return round(Decimal(self.amount_claimed / self.mileage), 2)
 
-    def pricePerNight(self):
-        if self.nights is None or self.nights <=0 or self.amount_claimed <=0:
+    def price_per_night(self):
+        if self.nights is None or self.nights <= 0 or self.amount_claimed <= 0:
             return None
         return round(Decimal(self.amount_claimed / self.nights), 2)
 
-    def claim_text(self, fetch_member=True):
-        if not fetch_member or self.member() is None:
-            name_str = f"Member:{self.member_id}"
-        else:
-            name_str = self.member().display_name()
+    def price_per_unit(self):
+        ppm = self.price_per_mile()
+        ppn = self.price_per_night()
 
-        return (
-            f"Claim {self.claim_number}\n\n"
-            f"{self.date_string()} - {name_str}"
-            f"\n\n{self.expense_text()}")
+        if None not in [ppm, ppn]:
+            print(f"WARNING: Expense {self.claim_number} has both PPM ({ppm}) and a PPN ({ppn}) value.")
+            return None
+
+        if ppm is not None:
+            return ppm
+        if ppn is not None:
+            return ppn
+        return None
 
     def date_string(self):
         day = str(self.date.day)
@@ -115,7 +122,10 @@ class Expense:
         datestring = f"{day} {self.date.strftime('%b %y')}"
         return datestring
 
-    def is_travel_expense(self) -> bool:
+    def is_booking_fee(self) -> bool:
+        return "BOOKING FEE" in (str(self.expense_type) + str(self.short_desc)).upper()
+
+    def is_transport_expense(self) -> bool:
         return self.expense_type.upper() in [
             "MILEAGE - CAR", 
             "MILEAGE - MOTORCYCLE",
@@ -125,21 +135,35 @@ class Expense:
             "TAXI"]
 
     def is_overnight_expense(self) -> bool:
-        return self.expense_type in [
+        return self.expense_type.upper() in [
             "HOTEL - UK NOT LONDON", 
             "HOTEL - LONDON", 
             "HOTEL - EUROPEAN",
             "HOTEL - LATE NIGHT"]
 
-    def expense_text(self):
-        text = f"{self.amount_claimed_str()} for"
-
-        if self.is_travel_expense():
-            text += " " + self.travel_expense_text()
-        elif self.is_overnight_expense():
-            text += " " + self.overnight_expense_text()
+    def claim_text(self, fetch_member=True):
+        if not fetch_member or self.member() is None:
+            name_str = f"Member:{self.member_id}"
         else:
-            text += " {}: {}".format(self.category, self.expense_type)
+            name_str = self.member().display_name()
+
+        return (
+            f"Claim {self.claim_number}\n\n"
+            f"{self.date_string()} - {name_str}\n\n"
+            f"{self.expense_text()}")
+
+    def expense_text(self) -> str:
+
+        # Display cash amount
+        text = f"{self.amount_claimed_str()} for "
+
+        # Construct relevant sentence.
+        if self.is_transport_expense():
+            text += self.transport_expense_text()
+        elif self.is_overnight_expense():
+            text += self.overnight_expense_text()
+        else:
+            text += "{}: {}".format(self.category, self.expense_type)
             if self.short_desc is not None:
                 text += " - {}".format(self.short_desc)
 
@@ -149,65 +173,73 @@ class Expense:
 
         return text
 
-    def travel_expense_text(self):
+    def transport_expense_text(self) -> str:
+
         # Travel cat type (who travelled)
         text = "staff" if self.category == "Staff Travel" else ""
-        text += " MP" if self.category == "MP Travel" else ""
-        text += " dependant" if self.category == "Dependant Travel" else ""
+        text += "MP" if self.category == "MP Travel" else ""
+        text += "a dependant's" if self.category == "Dependant Travel" else ""
 
         # Show how far they travelled
         text += " travel" if self.mileage is None else " travelling {} miles".format(self.mileage)
 
-
+        # Use journey if values given
         if None not in [self.travel_from, self.travel_to]:
             text += " from {} to {}".format(self.travel_from, self.travel_to)
 
-        suffix_map = {"Mileage - car": " by car",
-                        "Mileage - bicycle": " by bicycle",
-                        "Mileage - motorcycle": " by motorcycle",
-                        "Air travel": " by air travel",
-                        "Rail": " by train",
-                        "Taxi": " by taxi"}
-        text += suffix_map.get(self.expense_type, "")
+        # Method of transport
+        suffix_map = {
+            "MILEAGE - CAR": " by car",
+            "MILEAGE - BICYCLE": " by bicycle",
+            "MILEAGE - MOTORCYCLE": " by motorcycle",
+            "AIR TRAVEL": " by air",
+            "RAIL": " by train",
+            "TAXI": " by taxi"}
+        text += suffix_map.get(self.expense_type.upper(), "")
 
-        if self.expense_type == "Rail" and self.travel_type is not None:
+        # Show seat class if train or plane
+        if self.travel_type is not None:
             text += " ({})".format(self.travel_type)
 
-        ppm = self.pricePerMile()
+        # Show price per mile if mileage is given
+        ppm = self.price_per_mile()
         if ppm is not None:
             text += " ({} per mile)".format(money_string(ppm))
 
         text += "."
         return text
 
-    def overnight_expense_text(self):
-        text = "staff" if self.category == "Staff Travel" else ""
-        text += " dependant" if self.category == "Dependant Travel" else ""
-        text += " {} night".format(self.nights) if self.nights is not None else ""
+    def overnight_expense_text(self) -> str:
 
-        text += " stay at"
+        # Add amount of nights
+        text = "a {} night ".format(self.nights) if self.nights is not None else "a "
 
+        # Where they stayed
         accom_map = {
-            "Hotel - UK Not London": "non-London hotel",
-            "Hotel - London": "London hotel",
-            "Hotel - European": "European hotel"
+            "HOTEL - UK NOT LONDON": "stay at a non-London hotel",
+            "HOTEL - LONDON": "stay at a London hotel",
+            "HOTEL - EUROPEAN": "stay at a European hotel"
         }
-        text += " " + accom_map.get(self.expense_type, 'hotel')
+        text += accom_map.get(self.expense_type.upper(), "hotel stay")
 
-        ppn = self.pricePerNight()
+        # Show if staff or dependant
+        if self.category.upper() == "STAFF TRAVEL":
+            text += " for staff"
+        elif self.category.upper() == "DEPENDANT TRAVEL":
+            text += " for a dependant"
+
+        # Price per night if available
+        ppn = self.price_per_night()
         if ppn is not None:
             text += " ({} per night)".format(money_string(ppn))
 
         text += "."
         return text
 
-    def queue_format(self) -> dict:
-        datestring = date.today().strftime("%Y-%m-%d")
-        return {
-            "claimNumber": self.claim_number,
-            "discovery_date": datestring,
-            "claim": self.data
-        }
+
+
+def exp_list(expenses: List[Expense]) -> str:
+    return f"{len(expenses)} expenses from {date_range(expenses)}"
 
 
 def dummyExpense():
@@ -330,30 +362,43 @@ def get_expenses(year_code, force=False) -> List[Expense]:
             max_date = max(e for e in [expense.date, max_date] if e is not None)
             expenses.append(expense)
         else:
-            print(f"Invalid expense dict format found: {exp_data}")
+            print(f"Invalid expense dict format found.")
 
     print(f"Found {len(expenses)} expenses for year code '{year_code}' "
           f"from {min_date} to {max_date}.")
     return expenses
 
 
+def get_mulityear_expenses(year_codes, force=False) -> List[Expense]:
+    expenses = []
+    for year_code in year_codes:
+        expenses += get_expenses(year_code, force)
+    return expenses
+
+
 def get_expense_queue() -> List[Expense]:
-    print(f"Getting expense queue from S3://{S3_BUCKET}/{S3_EXPENSE_QUEUE_KEY}")
-    queue_json = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-    return queue_json
+    json_list = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
+    return [Expense(exp_data) for exp_data in json_list]
 
 
-def get_queue_expenses():
-    return [Expense(data["claim"]) for data in get_expense_queue().values()]
+def save_expense_queue(expenses):
+    queue = [e.data for e in expenses]
+    save_json_to_s3(queue, S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
+
+
+def add_to_exception_queue(expense):
+    print(f"Placing expense in exception queue: {expense}")
+    exception_queue = get_json_from_s3(S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
+    exception_queue.append(expense.data)
+    save_json_to_s3(exception_queue, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
 
 
 def get_previous_claim_numbers() -> set:
-    print(f"Getting previous claim numbers from S3://{S3_BUCKET}/{S3_PREV_CLAIM_NUMBERS_KEY}")
-    start = datetime.utcnow()
-    prev_claimnumbers_list = get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
-    seconds = (datetime.utcnow() - start).total_seconds()
-    print(f"Downloaded prev claimnumbers from S3 in {seconds} seconds.")
-    return set(prev_claimnumbers_list)
+    return set(get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY))
+
+
+def save_previous_claim_numbers(claim_numbers):
+    save_list_to_s3(claim_numbers, S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
 
 
 def order_by_group(expenses: List[Expense]) -> dict:
@@ -373,6 +418,56 @@ def generate_group_thresholds(expenses, top_percentile, minimum_count):
     for group, exp_list in ordered.items():
         amounts = [float(e.amount_claimed) for e in exp_list if e.amount_claimed > 0]
         if len(amounts) >= minimum_count:
-            thresholds[group] = round(percentile(amounts, 100-top_percentile), 2)
+            thresholds[group] = round(percentile(amounts, 100-top_percentile), 3)
     return thresholds
+
+
+def generate_travel_thresholds(expenses: List[Expense], top_percentile, minimum_count):
+    per_unit_values = {}
+    for e in expenses:
+        
+        if e.price_per_night() is not None:
+            unit = e.price_per_night()
+        elif e.price_per_mile() is not None:
+            unit = e.price_per_mile()
+        else:
+            continue
+
+        exp_type = e.expense_type.upper()
+        try:
+            per_unit_values[exp_type].append(unit)
+        except KeyError:
+            per_unit_values[exp_type] = [unit]
+
+
+    thresholds = {}
+    for exp_type, value_list in per_unit_values.items():
+        amounts = [float(x) for x in value_list]
+        if len(amounts) >= minimum_count:
+            thresholds[exp_type] = round(percentile(amounts, 100-top_percentile), 3)
+
+    return thresholds
+            
+
+def get_travel_thresholds() -> dict:
+    global _TRAVEL_THRESHOLDS
+    if _TRAVEL_THRESHOLDS is None:
+        _TRAVEL_THRESHOLDS = get_json_from_s3(S3_BUCKET, TRAVEL_THRESHOLDS_KEY)
+    return _TRAVEL_THRESHOLDS
+
+
+def get_group_thresholds() -> dict:
+    global _GROUP_THRESHOLDS
+    if _GROUP_THRESHOLDS is None:
+        _GROUP_THRESHOLDS = get_json_from_s3(S3_BUCKET, GROUP_THRESHOLDS_KEY)
+    return _GROUP_THRESHOLDS
+
+
+def date_range(expenses: List[Expense]) -> str:
+    min_date = None
+    max_date = None
+    for e in expenses:
+        min_date = e.date if min_date is None else min(e.date, min_date)
+        max_date = e.date if max_date is None else max(e.date, max_date)
+    return f"{min_date} - {max_date}"
 

@@ -1,9 +1,15 @@
 import os
-
-from aws_tools import get_json_from_s3
+from datetime import time
 
 S3_BUCKET = os.environ["MPE_S3_BUCKET"]
-S3_EXPENSE_QUEUE_KEY = "new_expenses_queue.json"
-S3_PREV_CLAIM_NUMBERS_KEY = "previous_claimNumbers.txt"
-MEMBERS_OF_NOTE_IDS = set(get_json_from_s3(S3_BUCKET, "members_of_note.json").values())
-GROUP_THRESHOLDS = get_json_from_s3(S3_BUCKET, "group_thresholds.json")
+TWEET_START_TIME = time(os.getenv("TWEET_START_TIME", 7), 0, 0)
+TWEET_END_TIME = time(os.getenv("TWEET_END_TIME", 21), 0, 0)
+TWITTER_CREDENTIALS_SECRETS_NAME = os.environ["TWITTER_CREDENTIALS_SECRETS_NAME"]
+EVENTBRIDGE_EVENT_NAME = os.environ["MPE_EVENT_NAME"]
+
+S3_EXPENSE_QUEUE_KEY = "TWEET_EXPENSE_QUEUE.json"
+S3_EXCEPTION_QUEUE_KEY = "TWEET_EXCEPTION_QUEUE.json"
+S3_PREV_CLAIM_NUMBERS_KEY = "PREVIOUS_CLAIM_NUMBERS.txt"
+MEMBERS_OF_NOTE_IDS_KEY = "MEMBERS_OF_NOTE.json"
+GROUP_THRESHOLDS_KEY = "GROUP_THRESHOLDS.json"
+TRAVEL_THRESHOLDS_KEY = "TRAVEL_THRESHOLDS.json"

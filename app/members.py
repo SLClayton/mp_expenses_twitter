@@ -2,13 +2,16 @@ import requests
 import json
 import time
 from typing import List
-from pathlib import Path
+
+from aws_tools import get_json_from_s3
+from vals import MEMBERS_OF_NOTE_IDS_KEY, S3_BUCKET
 
 from tools import *
 
 global members
 members_cache = {}
 
+_MEMBERS_OF_NOTE_IDS = None
 
 class Member:
 
@@ -116,6 +119,7 @@ def remove_title(name):
 
 
 def get_members_of_note_ids() -> set:
-    file_path = os.path.join(Path(__file__).parent.absolute(), "members_of_note.json")
-    members_of_note = load_json(file_path)
-    return set(members_of_note.values())
+    global _MEMBERS_OF_NOTE_IDS
+    if _MEMBERS_OF_NOTE_IDS is None:
+        _MEMBERS_OF_NOTE_IDS = set(get_json_from_s3(S3_BUCKET, MEMBERS_OF_NOTE_IDS_KEY).values())
+    return _MEMBERS_OF_NOTE_IDS

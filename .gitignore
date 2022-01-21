@@ -1,3 +1,5 @@
 __pycache__/
 csv_cache/
+packages/
 test*
+output.json

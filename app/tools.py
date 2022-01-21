@@ -99,23 +99,6 @@ def rndstring(n):
     return "".join(random.choice(alphabet) for i in range(n))
 
 
-def positional_weekday(year, month, weekday, positional):
-    d = date(year, month, 1)
-    while d.month == month:
-        if d.isoweekday() == weekday:
-            if positional == 1:
-                return d
-            else:
-                positional -= 1
-                d += timedelta(days=7)
-        else:
-            days_to_add = weekday - d.isoweekday()
-            if days_to_add < 0:
-                days_to_add += 7
-            d += timedelta(days=days_to_add)
-    return None
-
-
 def split_text(text, char_limit):
     if text == "":
         return [""]
@@ -147,5 +130,23 @@ def parse_date(date_string):
     raise ValueError(f"no valid date format found for string '{date_string}'")
 
 
-def in_aws():
-    return os.environ.get("AWS_EXECUTION_ENV") is not None
+def split_text(text, max_chunk_size):
+    if text == "":
+        return [""]
+    parts = []
+    while len(text) > 0:
+        if len(text) <= max_chunk_size:
+            if len(parts) > 0:
+                parts.append("…" + text)
+            else:
+                parts.append(text)
+            text = ""
+        else:
+            if len(parts) > 0:
+                i = max_chunk_size - 2
+                parts.append("…" + text[:i] + "…")
+            else:
+                i = max_chunk_size - 1
+                parts.append(text[:i] + "…")
+            text = text[i:]
+    return parts
