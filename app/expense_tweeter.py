@@ -95,7 +95,7 @@ def tweet_handler(event, context):
         }
     return {
         'statusCode': 200,
-        'tweet_id': tweet,
+        'tweet_id': str(tweet),
         "update_interval": update_interval
     }
 

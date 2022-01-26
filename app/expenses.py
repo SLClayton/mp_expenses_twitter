@@ -125,6 +125,17 @@ class Expense:
     def is_booking_fee(self) -> bool:
         return "BOOKING FEE" in (str(self.expense_type) + str(self.short_desc)).upper()
 
+    def is_first_class(self) -> bool:
+        keywords = ["FIRST", "BUSINESS", "CLUB"]
+        travel_type = str(self.travel_type).upper()
+        return any(keyword in travel_type for keyword in keywords)
+
+    def is_air_travel(self) -> bool:
+        return str(self.expense_type).upper() == "AIR TRAVEL"
+
+    def is_taxi_ride(self) -> bool:
+        return str(self.expense_type).upper() == "TAXI"
+
     def is_transport_expense(self) -> bool:
         return self.expense_type.upper() in [
             "MILEAGE - CAR", 
@@ -238,7 +249,11 @@ class Expense:
 
 
 
-def exp_list(expenses: List[Expense]) -> str:
+def exp_list_str(expenses: List[Expense]) -> str:
+    if len(expenses) == 0:
+        return f"0 expenses"
+    if len(expenses) == 1:
+        return f"1 expense on {expenses[0].date}"
     return f"{len(expenses)} expenses from {date_range(expenses)}"
 
 

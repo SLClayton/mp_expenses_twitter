@@ -2,8 +2,8 @@ import os
 from datetime import time
 
 S3_BUCKET = os.environ["MPE_S3_BUCKET"]
-TWEET_START_TIME = time(os.getenv("TWEET_START_TIME", 7), 0, 0)
-TWEET_END_TIME = time(os.getenv("TWEET_END_TIME", 21), 0, 0)
+TWEET_START_TIME = time(int(os.getenv("TWEET_START_TIME", 7)), 0, 0)
+TWEET_END_TIME = time(int(os.getenv("TWEET_END_TIME", 21)), 0, 0)
 TWITTER_CREDENTIALS_SECRETS_NAME = os.environ["TWITTER_CREDENTIALS_SECRETS_NAME"]
 EVENTBRIDGE_EVENT_NAME = os.environ["MPE_EVENT_NAME"]
 

@@ -5,7 +5,7 @@ from expenses import *
 from members import get_members_of_note_ids
 from timing import *
 
-MIN_DATE_LIMIT = date(2021, 5, 25)
+MIN_DATE_LIMIT = date(2021, 3, 25)
 
 def get_year_codes():
     this_year = datetime.utcnow().year
@@ -25,7 +25,7 @@ def get_year_codes():
 def expense_filter(expense: Expense) -> bool:
 
     # Date must be new enough and not in future
-    if not (MIN_DATE_LIMIT < expense.date < date.today()):
+    if expense.date > date.today():
         return False
     
     # Basic filter
@@ -35,6 +35,10 @@ def expense_filter(expense: Expense) -> bool:
     # If a popular MP, use their expense regardless
     member_of_note_ids = get_members_of_note_ids()
     if expense.member_id in member_of_note_ids:
+        return True
+
+    # Always use Air Travel, First Class and Taxi expenses
+    if any((expense.is_air_travel(), expense.is_first_class(), expense.is_taxi_ride())):
         return True
 
     # Ignore booking fees
@@ -61,3 +65,33 @@ def expense_filter(expense: Expense) -> bool:
         return True
 
     return False
+
+
+def get_new_expenses():
+
+    # Get all expenses from surrounding years
+    print("Getting new expenses.")
+    year_codes = get_year_codes()
+    all_expenses = get_mulityear_expenses(year_codes, force=False)
+    print(f"Found {exp_list_str(all_expenses)} for year codes {year_codes}.")
+
+    # Get the previous claim numbers already tweeted
+    prev_claim_numbers = get_previous_claim_numbers()
+    print(f"Found {len(prev_claim_numbers)} previous claim numbers.")
+
+    # Filter expenses
+    filtered_expenses = list(filter(expense_filter, all_expenses))
+    perc = (len(filtered_expenses) / len(all_expenses)) * 100
+    print(f"Found {exp_list_str(filtered_expenses)} expenses that pass filter ({perc:.1f}%).")
+
+    new_expenses = [e for e in filtered_expenses if 
+        e.claim_number not in prev_claim_numbers and e.date >= MIN_DATE_LIMIT]
+
+    tweets_ph = len(new_expenses) / hours_until_next_publication()
+    print(f"Found {exp_list_str(new_expenses)} that aren't in prev claim list and pass filter. "
+          f"Thats {tweets_ph:.1f} tweets per hour until {get_next_publication_date()}.")
+
+    save_expense_queue(new_expenses)
+
+
+get_new_expenses()
