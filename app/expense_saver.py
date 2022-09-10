@@ -5,7 +5,8 @@ from expenses import *
 from members import get_members_of_note_ids
 from timing import *
 
-MIN_DATE_LIMIT = date(2021, 3, 25)
+MIN_DATE_LIMIT = date(2021, 10, 1)
+MAX_DATE_LIMIT = date(2021, 10, 15)
 
 def get_year_codes():
     this_year = datetime.utcnow().year
@@ -37,16 +38,20 @@ def expense_filter(expense: Expense) -> bool:
     if expense.member_id in member_of_note_ids:
         return True
 
-    # Always use Air Travel, First Class and Taxi expenses
-    if any((expense.is_air_travel(), expense.is_first_class(), expense.is_taxi_ride())):
-        return True
+    # Always use certain expense types
+    if any((
+        expense.is_air_travel(), 
+        expense.is_first_class(), 
+        expense.is_taxi_ride(),
+        expense.is_energy())):
+            return True
 
     # Ignore booking fees
     if expense.is_booking_fee() and expense.amount_claimed <= 5:
         return False
 
     # Always use very small claims
-    if expense.amount_claimed < 4:
+    if expense.amount_claimed < 3:
         return True
 
     # Check expense is a per unit cost (Overnight stay or transport mileage)
@@ -67,12 +72,12 @@ def expense_filter(expense: Expense) -> bool:
     return False
 
 
-def get_new_expenses():
+def get_new_expenses(force=False, save=False):
 
     # Get all expenses from surrounding years
     print("Getting new expenses.")
     year_codes = get_year_codes()
-    all_expenses = get_mulityear_expenses(year_codes, force=False)
+    all_expenses = get_mulityear_expenses(year_codes, force=force)
     print(f"Found {exp_list_str(all_expenses)} for year codes {year_codes}.")
 
     # Get the previous claim numbers already tweeted
@@ -85,13 +90,16 @@ def get_new_expenses():
     print(f"Found {exp_list_str(filtered_expenses)} expenses that pass filter ({perc:.1f}%).")
 
     new_expenses = [e for e in filtered_expenses if 
-        e.claim_number not in prev_claim_numbers and e.date >= MIN_DATE_LIMIT]
+        e.claim_number not in prev_claim_numbers and 
+        e.date >= MIN_DATE_LIMIT and
+        (MAX_DATE_LIMIT is None or e.date <= MAX_DATE_LIMIT)]
 
     tweets_ph = len(new_expenses) / hours_until_next_publication()
     print(f"Found {exp_list_str(new_expenses)} that aren't in prev claim list and pass filter. "
           f"Thats {tweets_ph:.1f} tweets per hour until {get_next_publication_date()}.")
 
-    save_expense_queue(new_expenses)
+    if save:
+        save_expense_queue(new_expenses)
 
 
-get_new_expenses()
+get_new_expenses(force=False, save=True)

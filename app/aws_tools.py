@@ -5,6 +5,7 @@ import base64
 from json.decoder import JSONDecodeError
 
 import boto3
+from botocore.exceptions import ClientError
 
 from tools import *
 
@@ -22,7 +23,12 @@ def get_text_from_s3(bucket, key) -> str:
     print(f"Downloading text from S3://{bucket}/{key}")
     bytes_buffer = io.BytesIO()
     start = datetime.utcnow()
-    s3.download_fileobj(Bucket=bucket, Key=key, Fileobj=bytes_buffer)
+    try:
+        s3.download_fileobj(Bucket=bucket, Key=key, Fileobj=bytes_buffer)
+    except ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            return None
+        raise
     seconds = round((datetime.utcnow() - start).total_seconds(), 3)
     print(f"Downloaded text in {seconds} seconds from S3://{bucket}/{key}")
     return bytes_buffer.getvalue().decode()

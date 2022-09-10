@@ -11,12 +11,15 @@ from io import StringIO
 from pathlib import Path
 import random
 from numpy import percentile
-
+from logging import getLogger
 
 from members import get_member
 from tools import *
 from aws_tools import *
 from vals import GROUP_THRESHOLDS_KEY, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY, S3_EXPENSE_QUEUE_KEY, S3_PREV_CLAIM_NUMBERS_KEY, TRAVEL_THRESHOLDS_KEY
+
+
+log = getLogger()
 
 CACHE_DIR = "csv_cache"
 EXPECTED_FIELDS = [
@@ -126,15 +129,25 @@ class Expense:
         return "BOOKING FEE" in (str(self.expense_type) + str(self.short_desc)).upper()
 
     def is_first_class(self) -> bool:
-        keywords = ["FIRST", "BUSINESS", "CLUB"]
-        travel_type = str(self.travel_type).upper()
-        return any(keyword in travel_type for keyword in keywords)
+        travel_type = str(self.travel_type).upper().strip()
+        whitelist = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
+        if travel_type in whitelist:
+            return True
+
+        keywords = ["FIRST", "BUSINESS", "CLUB", "PREMIUM"]
+        if any(word in travel_type for word in keywords):
+            log.warn(f"Expense {self.claim_number} travel type '{travel_type}' doesn't appear in "
+                     f"{whitelist} but has keyword match from {keywords}." )
+        return False
 
     def is_air_travel(self) -> bool:
         return str(self.expense_type).upper() == "AIR TRAVEL"
 
     def is_taxi_ride(self) -> bool:
         return str(self.expense_type).upper() == "TAXI"
+
+    def is_energy(self) -> bool:
+        return str(self.short_desc).upper() in ["GAS", "ELECTRICITY", "DUAL FUEL"]
 
     def is_transport_expense(self) -> bool:
         return self.expense_type.upper() in [
@@ -255,6 +268,10 @@ def exp_list_str(expenses: List[Expense]) -> str:
     if len(expenses) == 1:
         return f"1 expense on {expenses[0].date}"
     return f"{len(expenses)} expenses from {date_range(expenses)}"
+
+
+def print_exp(expenses: List[Expense]):
+    print(exp_list_str(expenses))
 
 
 def dummyExpense():
@@ -485,4 +502,29 @@ def date_range(expenses: List[Expense]) -> str:
         min_date = e.date if min_date is None else min(e.date, min_date)
         max_date = e.date if max_date is None else max(e.date, max_date)
     return f"{min_date} - {max_date}"
+
+
+def get_year_codes_range(from_year: int, to_year: int):
+    return [
+        "{}_{}".format(str(year)[-2:], str(year + 1)[-2:]) 
+        for year in range(from_year, to_year)
+    ]
+
+
+def save_new_thresholds(top_percentile, save_s3=False, save_local=False):
+    year_codes = get_year_codes_range(2020, 2021)
+    expenses = get_mulityear_expenses(year_codes, force=False)
+    travel_th = generate_travel_thresholds(expenses, top_percentile, 20)
+    group_th = generate_group_thresholds(expenses, top_percentile, 20)
+
+    if save_s3:
+        save_json_to_s3(travel_th, S3_BUCKET, TRAVEL_THRESHOLDS_KEY, indent=2)
+        save_json_to_s3(group_th, S3_BUCKET, GROUP_THRESHOLDS_KEY, indent=2)
+
+    if save_local:
+        with open(GROUP_THRESHOLDS_KEY, "w") as f:
+            json.dump(group_th, f)
+
+        with open(TRAVEL_THRESHOLDS_KEY, "w") as f:
+            json.dump(travel_th, f)
 
