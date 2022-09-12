@@ -27,6 +27,7 @@ EXPECTED_FIELDS = [
     "details", "journeyType", "journeyFrom", "journeyTo", "travel", "nights", "mileage",
     "amountClaimed", "amountPaid", "amountNotPaid", "amountRepaid", "status", "reasonIfNotPaid",
     "supplyMonth", "supplyPeriod"]
+FIRST_CLASS_TYPES_WHITELIST = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
 
 
 _GROUP_THRESHOLDS = None
@@ -125,19 +126,20 @@ class Expense:
         datestring = f"{day} {self.date.strftime('%b %y')}"
         return datestring
 
-    def is_booking_fee(self) -> bool:
-        return "BOOKING FEE" in (str(self.expense_type) + str(self.short_desc)).upper()
+    def is_rail_booking_fee(self) -> bool:
+        return (
+            self.is_rail() and 
+            ("BOOKING FEE" in str(self.short_desc).upper() or self.amount_claimed == 1))
 
     def is_first_class(self) -> bool:
         travel_type = str(self.travel_type).upper().strip()
-        whitelist = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
-        if travel_type in whitelist:
+        if travel_type in FIRST_CLASS_TYPES_WHITELIST:
             return True
 
         keywords = ["FIRST", "BUSINESS", "CLUB", "PREMIUM"]
         if any(word in travel_type for word in keywords):
             log.warn(f"Expense {self.claim_number} travel type '{travel_type}' doesn't appear in "
-                     f"{whitelist} but has keyword match from {keywords}." )
+                     f"{FIRST_CLASS_TYPES_WHITELIST} but has keyword match from {keywords}." )
         return False
 
     def is_air_travel(self) -> bool:
@@ -146,8 +148,20 @@ class Expense:
     def is_taxi_ride(self) -> bool:
         return str(self.expense_type).upper() == "TAXI"
 
+    def is_rail(self) -> bool:
+        return str(self.expense_type).upper() == "RAIL"
+
     def is_energy(self) -> bool:
         return str(self.short_desc).upper() in ["GAS", "ELECTRICITY", "DUAL FUEL"]
+
+    def is_staff_travel(self) -> bool:
+        return str(self.category).strip().upper() == "STAFF TRAVEL"
+
+    def is_dependant_travel(self) -> bool:
+        return str(self.category).strip().upper() == "DEPENDANT TRAVEL"
+
+    def is_mp_travel(self) -> bool:
+        return str(self.category).strip().upper() == "MP TRAVEL"
 
     def is_transport_expense(self) -> bool:
         return self.expense_type.upper() in [
@@ -176,6 +190,42 @@ class Expense:
             f"{self.date_string()} - {name_str}\n\n"
             f"{self.expense_text()}")
 
+
+    def first_class_claim_text(self, fetch_member=True):
+        ticket_type = str(self.travel_type).strip().lower()
+        assert ticket_type.upper() in FIRST_CLASS_TYPES_WHITELIST
+
+        # Get MP display string
+        if not fetch_member or self.member() is None:
+            name_str = f"Member:{self.member_id}"
+        else:
+            name_str = self.member().display_name()
+
+        # Include who its for if not for MP
+        traveller = ""
+        if self.is_staff_travel():
+            traveller = " for staff"
+        elif self.is_dependant_travel():
+            traveller = " for a dependant"
+
+        # Include if rail or plane
+        if self.is_rail():
+            transport = " on a train"
+        elif self.is_air_travel():
+            transport = " on a flight"
+        else:
+            raise Exception(f"Unrecognized transport type for expense {self}.")
+
+        # Use journey if values given
+        if None not in [self.travel_from, self.travel_to]:
+            destinations = " from {} to {}".format(self.travel_from, self.travel_to)
+
+
+        return (f"{name_str} claimed {self.amount_claimed_str()} "
+                f"for a {ticket_type} ticket{traveller}{transport}{destinations}."
+                f"\n\n{self.claim_number} - {self.date_string()}")
+
+
     def expense_text(self) -> str:
 
         # Display cash amount
@@ -200,9 +250,9 @@ class Expense:
     def transport_expense_text(self) -> str:
 
         # Travel cat type (who travelled)
-        text = "staff" if self.category == "Staff Travel" else ""
-        text += "MP" if self.category == "MP Travel" else ""
-        text += "a dependant's" if self.category == "Dependant Travel" else ""
+        text = "staff" if self.is_staff_travel() else ""
+        text += "MP" if self.is_mp_travel() else ""
+        text += "a dependant's" if self.is_dependant_travel() else ""
 
         # Show how far they travelled
         text += " travel" if self.mileage is None else " travelling {} miles".format(self.mileage)
@@ -408,31 +458,6 @@ def get_mulityear_expenses(year_codes, force=False) -> List[Expense]:
     return expenses
 
 
-def get_expense_queue() -> List[Expense]:
-    json_list = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-    return [Expense(exp_data) for exp_data in json_list]
-
-
-def save_expense_queue(expenses):
-    queue = [e.data for e in expenses]
-    save_json_to_s3(queue, S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-
-
-def add_to_exception_queue(expense):
-    print(f"Placing expense in exception queue: {expense}")
-    exception_queue = get_json_from_s3(S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
-    exception_queue.append(expense.data)
-    save_json_to_s3(exception_queue, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
-
-
-def get_previous_claim_numbers() -> set:
-    return set(get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY))
-
-
-def save_previous_claim_numbers(claim_numbers):
-    save_list_to_s3(claim_numbers, S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
-
-
 def order_by_group(expenses: List[Expense]) -> dict:
     order = {}
     for expense in expenses:
@@ -528,3 +553,27 @@ def save_new_thresholds(top_percentile, save_s3=False, save_local=False):
         with open(TRAVEL_THRESHOLDS_KEY, "w") as f:
             json.dump(travel_th, f)
 
+
+def get_expense_queue() -> List[Expense]:
+    json_list = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
+    return [Expense(exp_data) for exp_data in json_list]
+
+
+def save_expense_queue(expenses):
+    queue = [e.data for e in expenses]
+    save_json_to_s3(queue, S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
+
+
+def add_to_exception_queue(expense):
+    print(f"Placing expense in exception queue: {expense}")
+    exception_queue = get_json_from_s3(S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
+    exception_queue.append(expense.data)
+    save_json_to_s3(exception_queue, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
+
+
+def get_previous_claim_numbers() -> set:
+    return set(get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY))
+
+
+def save_previous_claim_numbers(claim_numbers):
+    save_list_to_s3(claim_numbers, S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)

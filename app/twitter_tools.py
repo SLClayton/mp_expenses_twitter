@@ -2,7 +2,7 @@ from re import A
 import pytwitter
 
 from aws_tools import *
-from vals import TWITTER_CREDENTIALS_SECRETS_NAME
+from vals import TWITTER_CREDENTIALS_SECRET_ARN
 
 MAX_TWEET_LENGTH = 280
 _TWITTER_CLIENT = None
@@ -11,8 +11,8 @@ _TWITTER_CLIENT = None
 def get_twitter_client() -> pytwitter.Api:
     global _TWITTER_CLIENT
     if _TWITTER_CLIENT is None:
-        print(f"Logging into twitter with credentials from {TWITTER_CREDENTIALS_SECRETS_NAME}")
-        credentials = get_secret(TWITTER_CREDENTIALS_SECRETS_NAME)
+        print(f"Logging into twitter with credentials from {TWITTER_CREDENTIALS_SECRET_ARN}")
+        credentials = get_secret(TWITTER_CREDENTIALS_SECRET_ARN)
         _TWITTER_CLIENT = pytwitter.Api(
             consumer_key=credentials["CONSUMER_KEY"],
             consumer_secret=credentials["CONSUMER_SECRET"],

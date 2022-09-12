@@ -86,6 +86,8 @@ def get_secret(secret_id):
         return secret
 
 
-def update_event_cron_rule(event_name, cron_string):
-    cron = "cron(0/{} {}-{} ? * * *)".format(minute_interval, HOUR_START_TWEETS, HOUR_END_TWEETS)
-    eventBridge.put_rule(Name=event_name, ScheduleExpression=cron)
+def update_eventbridge_frequency(eventbridge_event_name, interval_minutes):
+    event_bridge.put_rule(
+        Name=eventbridge_event_name, 
+        ScheduleExpression=f"rate({interval_minutes} minutes)"
+    )

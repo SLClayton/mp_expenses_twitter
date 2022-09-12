@@ -1,5 +1,7 @@
 from operator import attrgetter
 import traceback
+from datetime import datetime, time
+import pytz
 
 from expenses import *
 from timing import mins_until_next_publication
@@ -10,12 +12,18 @@ from tools import *
 event_bridge = boto3.client("events")
 
 
-def update_tweet_interval(interval_minutes):
-    cron = f"cron(0/{interval_minutes} {TWEET_START_TIME.hour}-{TWEET_END_TIME.hour} ? * * *)"
-    event_bridge.put_rule(Name= EVENTBRIDGE_EVENT_NAME, ScheduleExpression=cron)
+def tweet_expense_from_queue(force=False):
 
-
-def tweet_expense_from_queue():
+    # Ensure it is within tweeting time
+    now = datetime.now(pytz.timezone("Europe/London")).time()
+    if not force and not (TWEET_START_TIME >= now >= TWEET_END_TIME):
+        message = f"Not within tweeting time of {TWEET_START_TIME}-{TWEET_END_TIME}"
+        print(message)
+        return {
+            "statusCode": 202,
+            "tweet_id": None,
+            "message": message
+    }
 
     # Get expenses from queue and sort them by date
     expense_queue = get_expense_queue()
@@ -42,15 +50,20 @@ def tweet_expense_from_queue():
         
         # Try tweeting it. If an error occurs place in exception queue
         try:
+            if PROJECT_CODE == "MPE":
+                tweet_text = expense.claim_text()
+            elif PROJECT_CODE == "FCMPS":
+                tweet_text = expense.first_class_claim_text()
+
             print("Attempting to tweet.")
-            resulting_tweet = tweet(expense.claim_text())
+            resulting_tweet = tweet(tweet_text)
             print(f"Tweet sent: {resulting_tweet}")
         except Exception as e:
             traceback.print_exc()
             print(f"Error while tweeting. Adding to exception queue.")
             add_to_exception_queue(expense)
             tweet_failure_count += 1
-            if tweet_failure_count < 5:
+            if tweet_failure_count < 0:
                 continue
             else:
                 break
@@ -74,30 +87,30 @@ def tweet_expense_from_queue():
 
     # Update new tweet interval so tweets are spaced out right
     try:
-        new_tweet_interval = round(mins_until_next_publication() / len(expense_queue))
-        new_tweet_interval = min(59, max(5, new_tweet_interval))
-        update_tweet_interval(new_tweet_interval)
+        if len(expense_queue) != 0:
+            new_tweet_interval = round(mins_until_next_publication() / len(expense_queue))
+            new_tweet_interval = min(MAX_TWEET_INTERVAL, max(new_tweet_interval, MIN_TWEET_INTERVAL))
+            update_eventbridge_frequency(EVENTBRIDGE_EVENT_NAME, new_tweet_interval)
     except Exception as e:
         print(f"Exception '{e}' while trying to update tweet interval.")
         traceback.print_exc()
 
-    return resulting_tweet, new_tweet_interval
+    return {
+        'statusCode': 200,
+        'tweet_id': str(resulting_tweet),
+        "new_interval": new_tweet_interval
+    }
 
 
 def tweet_handler(event, context):
     try:
-        tweet, update_interval = tweet_expense_from_queue()
+        return tweet_expense_from_queue(force=True)
     except Exception as e:
         traceback.print_exc()
         return {
-            'statusCode': 500,
-            'error': str(e)
+            "statusCode": 500,
+            "error": str(e)
         }
-    return {
-        'statusCode': 200,
-        'tweet_id': str(tweet),
-        "update_interval": update_interval
-    }
 
 
 if __name__ == "__main__":

@@ -5,8 +5,8 @@ from expenses import *
 from members import get_members_of_note_ids
 from timing import *
 
-MIN_DATE_LIMIT = date(2021, 10, 1)
-MAX_DATE_LIMIT = date(2021, 10, 15)
+MIN_DATE_LIMIT = date(2021, 12, 1)
+MAX_DATE_LIMIT = date(2022, 6, 1)
 
 def get_year_codes():
     this_year = datetime.utcnow().year
@@ -32,6 +32,14 @@ def expense_filter(expense: Expense) -> bool:
     # Basic filter
     if (str(expense.claim_number) == "1" or expense.amount_claimed <= 0):
         return False
+    
+    # Ignore rail booking fees
+    if expense.is_rail_booking_fee() and expense.amount_claimed <= 5:
+        return False
+
+    # First class handled by other bot
+    if expense.is_first_class():
+        return False
 
     # If a popular MP, use their expense regardless
     member_of_note_ids = get_members_of_note_ids()
@@ -40,15 +48,10 @@ def expense_filter(expense: Expense) -> bool:
 
     # Always use certain expense types
     if any((
-        expense.is_air_travel(), 
-        expense.is_first_class(), 
+        expense.is_air_travel(),
         expense.is_taxi_ride(),
         expense.is_energy())):
             return True
-
-    # Ignore booking fees
-    if expense.is_booking_fee() and expense.amount_claimed <= 5:
-        return False
 
     # Always use very small claims
     if expense.amount_claimed < 3:
@@ -99,7 +102,8 @@ def get_new_expenses(force=False, save=False):
           f"Thats {tweets_ph:.1f} tweets per hour until {get_next_publication_date()}.")
 
     if save:
+        assert PROJECT_CODE == "MPE"
         save_expense_queue(new_expenses)
 
-
-get_new_expenses(force=False, save=True)
+if __name__ == "__main__":
+    get_new_expenses(force=False, save=True)

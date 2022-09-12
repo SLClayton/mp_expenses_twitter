@@ -6,14 +6,14 @@ from aws_tools import *
 from vals import *
 from timing import *
 
-MIN_DATE = date(2021, 10, 1)
+MIN_DATE = date(2021, 12, 1)
 MAX_DATE = date.today()
 
 
 def save_expenses(force=False, save=False):
 
     this_year = date.today().year
-    year_codes = get_year_codes_range(this_year - 2, this_year + 1)
+    year_codes = get_year_codes_range(this_year - 2, this_year + 2)
     all_expenses = get_mulityear_expenses(year_codes, force)
 
     expenses = [e for e in all_expenses if e.is_first_class() and e.amount_claimed > 1]
@@ -29,18 +29,15 @@ def save_expenses(force=False, save=False):
     print(f"Found {exp_list_str(new_expenses)} that aren't in prev claim list and pass filter. "
           f"Thats {tweets_ph:.1f} tweets per hour until {get_next_publication_date()}.")
 
-    new_expenses.sort(key=lambda k: k.date)
-    for e in new_expenses:
-        print(e.expense_text())
-
     if save:
-        save_json_to_s3(expenses, S3_BUCKET, S3_FIRSTCLASS_EXPENSE_QUEUE_KEY, indent=2)
+        assert PROJECT_CODE == "FCMPS"
+        save_expense_queue(expenses)
 
     
 def get_previous_claim_numbers() -> set:
-    prev_claim_numbers = get_list_from_s3(S3_BUCKET, S3_FIRSTCLASS_PREV_CLAIM_NUMBERS_KEY)
+    prev_claim_numbers = get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
     return set() if prev_claim_numbers is None else set(prev_claim_numbers)
 
 
 if __name__ == "__main__":
-    save_expenses(force=False)
+    save_expenses(force=True, save=True)
