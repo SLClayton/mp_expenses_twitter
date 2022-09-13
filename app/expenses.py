@@ -190,7 +190,6 @@ class Expense:
             f"{self.date_string()} - {name_str}\n\n"
             f"{self.expense_text()}")
 
-
     def first_class_claim_text(self, fetch_member=True):
         ticket_type = str(self.travel_type).strip().lower()
         assert ticket_type.upper() in FIRST_CLASS_TYPES_WHITELIST
@@ -223,8 +222,7 @@ class Expense:
 
         return (f"{name_str} claimed {self.amount_claimed_str()} "
                 f"for a {ticket_type} ticket{traveller}{transport}{destinations}."
-                f"\n\n{self.claim_number} - {self.date_string()}")
-
+                f"\n\n{self.date_string()} - {self.claim_number}")
 
     def expense_text(self) -> str:
 
