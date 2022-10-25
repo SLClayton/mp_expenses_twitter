@@ -22,13 +22,39 @@ from vals import GROUP_THRESHOLDS_KEY, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY, S3_EXP
 log = getLogger()
 
 CACHE_DIR = "csv_cache"
-EXPECTED_FIELDS = [
+__EXPECTED_FIELDS = [
     "memberId", "year", "date", "claimNumber", "category", "expenseType", "shortDescription",
     "details", "journeyType", "journeyFrom", "journeyTo", "travel", "nights", "mileage",
     "amountClaimed", "amountPaid", "amountNotPaid", "amountRepaid", "status", "reasonIfNotPaid",
     "supplyMonth", "supplyPeriod"]
 FIRST_CLASS_TYPES_WHITELIST = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
 
+EXPECTED_FIELDS = [
+    "Parliamentary ID",
+    "Year",
+    "Date",
+    "Claim Number",
+    "Name",
+    "Constituency",
+    "Category",
+    "Cost Type",
+    "Short Description",
+    "Details",
+    "Journey Type",
+    "From",
+    "To",
+    "Travel",
+    "Nights",
+    "Mileage",
+    "Amount Claimed",
+    "Amount Paid",
+    "Amount Not Paid",
+    "Amount Repaid",
+    "Status",
+    "Reason If Not Paid",
+    "Supply Month",
+    "Supply Period"
+]
 
 _GROUP_THRESHOLDS = None
 _TRAVEL_THRESHOLDS = None
@@ -40,30 +66,30 @@ class Expense:
         self.data = data
         self._member = None
 
-        self.member_id = int(data["memberId"])
-        self.year_code = data["year"]
-        self.date = parse_date(data["date"].split("T")[0])
-        self.claim_number = data["claimNumber"]
-        self.category = data["category"]
-        self.expense_type = data["expenseType"]
-        self.amount_claimed = Decimal(str(data["amountClaimed"]))
-        self.amount_paid = Decimal(str(data["amountPaid"]))
-        self.status = data["status"]
+        self.member_id = int(data["Parliamentary ID"])
+        self.year_code = data["Year"]
+        self.date = parse_date(data["Date"])
+        self.claim_number = data["Claim Number"]
+        self.category = data["Category"]
+        self.expense_type = data["Cost Type"]
+        self.amount_claimed = Decimal(str(data["Amount Claimed"]))
+        self.amount_paid = Decimal(str(data["Amount Paid"]))
+        self.status = data["Status"]
 
-        self.short_desc = data.get("shortDescription") or None
-        self.details = data.get("details") or None
-        self.travel_from = data.get("journeyFrom") or None
-        self.travel_to = data.get("journeyTo") or None
-        self.travel_type = data.get("travel") or None
+        self.short_desc = data.get("Short Description") or None
+        self.details = data.get("Details") or None
+        self.travel_from = data.get("From") or None
+        self.travel_to = data.get("To") or None
+        self.travel_type = data.get("Journey Type") or None
 
         try:
-            self.mileage = Decimal(str(data.get("mileage")))
+            self.mileage = Decimal(str(data.get("Mileage")))
             assert self.mileage > 0
         except Exception:
             self.mileage = None
 
         try:
-            self.nights = Decimal(str(data.get("nights")))
+            self.nights = Decimal(str(data.get("Nights")))
             assert self.nights > 0
         except Exception:
             self.nights = None
@@ -435,14 +461,29 @@ def get_expenses(year_code, force=False) -> List[Expense]:
     min_date = None 
     max_date = None
     expenses = []
+
+    # Check for empty list
+    if len(exp_dicts) == 1 and all(val is None for val in exp_dicts[0].values()):
+        print(f"Empty list found for Expense year {year_code}")
+        return expenses
+
     for exp_data in exp_dicts:
-        if all(field in exp_data for field in EXPECTED_FIELDS):
-            expense = Expense(exp_data)
-            min_date = min(e for e in [expense.date, min_date] if e is not None)
-            max_date = max(e for e in [expense.date, max_date] if e is not None)
-            expenses.append(expense)
+        # Check expense data format is expected
+        if not all(field in exp_data for field in EXPECTED_FIELDS):
+            err = f"Invalid expense dict format found."
+            print(err)
+            pp(exp_data)
+            raise Exception(err)
         else:
-            print(f"Invalid expense dict format found.")
+            try:
+                expense = Expense(exp_data)
+                min_date = min(e for e in [expense.date, min_date] if e is not None)
+                max_date = max(e for e in [expense.date, max_date] if e is not None)
+                expenses.append(expense)
+            except Exception as e:
+                print(f"Error creating Expense object - {e}")
+                pp(expense)
+                raise e
 
     print(f"Found {len(expenses)} expenses for year code '{year_code}' "
           f"from {min_date} to {max_date}.")

@@ -40,4 +40,4 @@ def get_previous_claim_numbers() -> set:
 
 
 if __name__ == "__main__":
-    save_expenses(force=True, save=True)
+    save_expenses(force=False, save=False)
