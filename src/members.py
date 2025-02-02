@@ -1,10 +1,7 @@
 import requests
 import json
 import time
-from typing import List
-
-from aws_tools import get_json_from_s3
-from vals import MEMBERS_OF_NOTE_IDS_KEY, S3_BUCKET
+from typing import List, Union, Dict, Any
 
 from tools import *
 
@@ -31,17 +28,16 @@ class Member:
     def __repr__(self):
         return f"<Member {self.id}: {self.name} ({self.party_abbr}) current-mp={self.current_mp}>"
 
-    def display_name(self):
+    def display_name(self) -> str:
         return "{} ({})".format(remove_title(self.name), self.party_abbr)
 
 
-def get_api(url, params=None):
+def get_api_json(url, params=None) -> Dict[str, Any]:
     if params is None:
         params = {}
 
     retrys = 0
     while True:
-
         print(f"Trying to retrieve data from url: {url}")
         resp = requests.get(url, params=params)
 
@@ -65,13 +61,13 @@ def get_api(url, params=None):
     return data
 
 
-def get_member_data(member_id):
+def get_member_data(member_id) -> dict:
     url = "https://members-api.parliament.uk/api/Members/{}".format(member_id)
     print("Requesting member data for id {}.".format(member_id))
-    return get_api(url)["value"]
+    return get_api_json(url)["value"]
 
 
-def get_member(member_id):
+def get_member(member_id) -> Member:
     try:
         member = members_cache[member_id]
         print("Found member in cache")
@@ -88,13 +84,13 @@ def get_member(member_id):
 def search_members(name) -> List[Member]:
     print(f"Searching for member with name '{name}'.")
     url = "https://members-api.parliament.uk/api/Members/Search"
-    api_return = get_api(url, {"Name": name})
+    api_return = get_api_json(url, {"Name": name})
     members = [Member(item["value"]) for item in api_return["items"]]
     print(f"Found {len(members)} members matching the name '{name}'.")
     return members
 
 
-def map_member_ids(member_names: List[str]) -> dict:
+def map_member_ids(member_names: List[str]) -> Dict[str, int]:
     member_ids = {}
     for name in member_names:
         matching_members = search_members(name)
@@ -109,7 +105,7 @@ def map_member_ids(member_names: List[str]) -> dict:
     return member_ids
 
 
-def remove_title(name):
+def remove_title(name) -> str:
     titles = ["sir", "mr", "mrs", "ms"]
     words = name.split()
     first = words[0]
@@ -118,8 +114,9 @@ def remove_title(name):
     return " ".join(words)
 
 
-def get_members_of_note_ids() -> set:
+def is_member_of_note(member: Union[int, str, Member]) -> bool:
+    member_id = member.id if isinstance(member, Member) else str(member)
     global _MEMBERS_OF_NOTE_IDS
     if _MEMBERS_OF_NOTE_IDS is None:
-        _MEMBERS_OF_NOTE_IDS = set(get_json_from_s3(S3_BUCKET, MEMBERS_OF_NOTE_IDS_KEY).values())
-    return _MEMBERS_OF_NOTE_IDS
+        _MEMBERS_OF_NOTE_IDS = set(load_json("vip_members.json").values())
+    return member_id in _MEMBERS_OF_NOTE_IDS

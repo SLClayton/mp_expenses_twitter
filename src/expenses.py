@@ -1,32 +1,25 @@
 from math import exp
 from pathlib import Path
-from datetime import datetime, time
+from datetime import datetime, time, date
 from decimal import Decimal
 import requests
 import pandas as pd
-from typing import List
-from pandas import DataFrame
+from typing import List, Optional
 from numpy import e, nan
 from io import StringIO
 from pathlib import Path
 import random
 from numpy import percentile
 from logging import getLogger
+from functools import cached_property
 
-from members import get_member
+from members import get_member, Member
 from tools import *
 from aws_tools import *
-from vals import GROUP_THRESHOLDS_KEY, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY, S3_EXPENSE_QUEUE_KEY, S3_PREV_CLAIM_NUMBERS_KEY, TRAVEL_THRESHOLDS_KEY
-
 
 log = getLogger()
 
-CACHE_DIR = "csv_cache"
-__EXPECTED_FIELDS = [
-    "memberId", "year", "date", "claimNumber", "category", "expenseType", "shortDescription",
-    "details", "journeyType", "journeyFrom", "journeyTo", "travel", "nights", "mileage",
-    "amountClaimed", "amountPaid", "amountNotPaid", "amountRepaid", "status", "reasonIfNotPaid",
-    "supplyMonth", "supplyPeriod"]
+CACHE_DIR = "../csv_cache"
 FIRST_CLASS_TYPES_WHITELIST = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
 
 EXPECTED_FIELDS = [
@@ -56,63 +49,106 @@ EXPECTED_FIELDS = [
     "Supply Period"
 ]
 
-_GROUP_THRESHOLDS = None
-_TRAVEL_THRESHOLDS = None
-
 
 class Expense:
 
     def __init__(self, data):
-        self.data = data
+        self._data = data
         self._member = None
 
-        self.member_id = int(data["Parliamentary ID"])
-        self.year_code = data["Year"]
-        self.date = parse_date(data["Date"])
-        self.claim_number = data["Claim Number"]
-        self.category = data["Category"]
-        self.expense_type = data["Cost Type"]
-        self.amount_claimed = Decimal(str(data["Amount Claimed"]))
-        self.amount_paid = Decimal(str(data["Amount Paid"]))
-        self.status = data["Status"]
+    @property
+    def member_id(self) -> int:
+        return int(self._data["Parliamentary ID"])
 
-        self.short_desc = data.get("Short Description") or None
-        self.details = data.get("Details") or None
-        self.travel_from = data.get("From") or None
-        self.travel_to = data.get("To") or None
-        self.travel_type = data.get("Journey Type") or None
+    @property
+    def year_code(self) -> str:
+        return self._data["Year"]
 
+    @property
+    def date(self) -> date:
+        return parse_date(self._data["Date"])
+
+    @property
+    def claim_number(self) -> str:
+        return self._data["Claim Number"]
+
+    @property
+    def category(self) -> str:
+        return self._data["Category"]
+
+    @property
+    def expense_type(self) -> str:
+        return self._data["Cost Type"]
+
+    @property
+    def amount_claimed(self) -> Decimal:
+        return Decimal(str(self._data["Amount Claimed"]))
+
+    @property
+    def amount_paid(self) -> Decimal:
+        return Decimal(str(self._data["Amount Paid"]))
+
+    @property
+    def status(self) -> str:
+        return self._data["Status"]
+
+    @property
+    def short_desc(self) -> str:
+        return self._data.get("Short Description") or None
+
+    @property
+    def details(self) -> str:
+        return self._data.get("Details") or None
+
+    @property
+    def travel_from(self) -> str:
+        return self._data.get("From") or None
+
+    @property
+    def travel_to(self) -> str:
+        return self._data.get("To") or None
+
+    @property
+    def travel_type(self) -> str:
+        return self._data.get("Travel") or None
+
+    @property
+    def mileage(self) -> Optional[Decimal]:
         try:
-            self.mileage = Decimal(str(data.get("Mileage")))
-            assert self.mileage > 0
+            mileage = Decimal(str(self._data.get("Mileage")))
+            assert mileage > 0
+            return mileage
         except Exception:
-            self.mileage = None
+            return None
 
+    @property
+    def nights(self) -> Optional[Decimal]:
         try:
-            self.nights = Decimal(str(data.get("Nights")))
-            assert self.nights > 0
+            nights = Decimal(str(self._data.get("Nights")))
+            assert nights > 0
+            return nights
         except Exception:
-            self.nights = None
+            return None
 
     def __repr__(self):
-        mp_string = self._member.name if self._member is not None else self.member_id
+        mp_string = self.member.name if self._member is not None else self.member_id
         return (
             f"<Expense {self.claim_number} on {self.date} mp={mp_string}: "
             f"{money_string(self.amount_claimed)} for {self.category} - {self.expense_type} - {self.short_desc}>"
         )
 
-    def group(self):
+    def group(self) -> str:
         return "/".join([
             str(self.category).strip(), 
             str(self.expense_type).strip(), 
             str(self.short_desc).strip()
             ]).upper()
 
-    def member(self):
+    @cached_property
+    def member(self) -> Optional[Member]:
         if "DUMMY" in self.claim_number:
             return None
-        if self._member is None:
-            self._member = get_member(self.member_id)
+        self._member = get_member(self.member_id)
         return self._member
 
     def amount_claimed_str(self) -> str:
@@ -121,22 +157,22 @@ class Expense:
     def base_claim_number(self) -> int:
         return int(self.claim_number.split("-")[0])
 
-    def price_per_mile(self):
+    def price_per_mile(self) -> Optional[Decimal]:
         if self.mileage is None or self.mileage <= 0 or self.amount_claimed <= 0:
             return None
         return round(Decimal(self.amount_claimed / self.mileage), 2)
 
-    def price_per_night(self):
+    def price_per_night(self) -> Optional[Decimal]:
         if self.nights is None or self.nights <= 0 or self.amount_claimed <= 0:
             return None
         return round(Decimal(self.amount_claimed / self.nights), 2)
 
-    def price_per_unit(self):
+    def price_per_unit(self) -> Optional[Decimal]:
         ppm = self.price_per_mile()
         ppn = self.price_per_night()
 
         if None not in [ppm, ppn]:
-            print(f"WARNING: Expense {self.claim_number} has both PPM ({ppm}) and a PPN ({ppn}) value.")
+            print(f"WARNING: Expense {self.claim_number} has both PPM ({ppm}) and a PPN ({ppn}) value. {self}")
             return None
 
         if ppm is not None:
@@ -145,7 +181,7 @@ class Expense:
             return ppn
         return None
 
-    def date_string(self):
+    def date_string(self) -> str:
         day = str(self.date.day)
         if day.startswith("0"):
             day = day[1:]
@@ -205,18 +241,18 @@ class Expense:
             "HOTEL - EUROPEAN",
             "HOTEL - LATE NIGHT"]
 
-    def claim_text(self, fetch_member=True):
-        if not fetch_member or self.member() is None:
+    def claim_text(self, fetch_member=True) -> str:
+        if not fetch_member or self.member is None:
             name_str = f"Member:{self.member_id}"
         else:
-            name_str = self.member().display_name()
+            name_str = self.member.display_name()
 
         return (
             f"Claim {self.claim_number}\n\n"
             f"{self.date_string()} - {name_str}\n\n"
             f"{self.expense_text()}")
 
-    def first_class_claim_text(self, fetch_member=True):
+    def first_class_claim_text(self, fetch_member=True) -> str:
         ticket_type = str(self.travel_type).strip().lower()
         assert ticket_type.upper() in FIRST_CLASS_TYPES_WHITELIST
 
@@ -242,6 +278,7 @@ class Expense:
             raise Exception(f"Unrecognized transport type for expense {self}.")
 
         # Use journey if values given
+        destinations = ""
         if None not in [self.travel_from, self.travel_to]:
             destinations = " from {} to {}".format(self.travel_from, self.travel_to)
 
@@ -335,7 +372,6 @@ class Expense:
         return text
 
 
-
 def exp_list_str(expenses: List[Expense]) -> str:
     if len(expenses) == 0:
         return f"0 expenses"
@@ -344,11 +380,11 @@ def exp_list_str(expenses: List[Expense]) -> str:
     return f"{len(expenses)} expenses from {date_range(expenses)}"
 
 
-def print_exp(expenses: List[Expense]):
+def print_exps(expenses: List[Expense]) -> None:
     print(exp_list_str(expenses))
 
 
-def dummyExpense():
+def dummyExpense() -> Expense:
     claim_data = {}
     claim_data["claimNumber"] = "0-DUMMY_CLAIM_" + rndstring(5)
     claim_data["year"] = "20_21"
@@ -365,36 +401,7 @@ def dummyExpense():
     return Expense(claim_data)
 
 
-    sorted_by_type = sort_by_exp_type(expenses)
-
-    claimed_ranges = {}
-    for type, exp_list in sorted_by_type.items():
-
-        regular = []
-        with_mileage = []
-        with_nights = []
-
-        for e in exp_list:
-            pricePerMile = e.pricePerMile()
-            pricePerNight = e.pricePerNight()
-
-            if pricePerMile is not None:
-                with_mileage.append(float(pricePerMile))
-            elif pricePerNight is not None:
-                with_nights.append(float(pricePerNight))
-            else:
-                regular.append(float(e.amount_claimed))
-
-        claimed_ranges[type] = sorted(regular)
-        if len(with_mileage) > 0:
-            claimed_ranges["{} mileage".format(type)] = sorted(with_mileage)
-        if len(with_nights) > 0:
-            claimed_ranges["{} nights".format(type)] = sorted(with_nights)
-
-    return claimed_ranges
-
-
-def get_cached_csv_path(year_code):
+def get_cached_csv_path(year_code) -> str:
     return os.path.join(Path(__file__).parent.absolute(), CACHE_DIR, f"{year_code}.csv")
 
 
@@ -409,7 +416,7 @@ def get_cache_csv(year_code) -> str:
     return None
 
 
-def save_cache_csv(csv_string, year_code):
+def save_cache_csv(csv_string, year_code) -> None:
     cached_path = get_cached_csv_path(year_code)
     Path(cached_path).parent.mkdir(parents=True, exist_ok=True)
     save_text(csv_string, cached_path)
@@ -424,7 +431,8 @@ def get_expenses_csv(year_code, force=False) -> str:
             return csv_text
 
     # Go download file
-    url = f"https://www.theipsa.org.uk/api/download?type=individualExpenses&year={year_code}"
+    #url = f"https://www.theipsa.org.uk/api/download?type=individualExpenses&year={year_code}"
+    url = f"https://www.theipsa.org.uk/api/download?type=individualBusinessCosts&year={year_code}"
     resp = None
     while resp is None:
         try:
@@ -448,16 +456,12 @@ def get_expenses_csv(year_code, force=False) -> str:
     return csv_text
 
 
-def get_expenses_df(year_code, force=False) -> DataFrame:
-    return pd.read_csv(StringIO(get_expenses_csv(year_code, force)))
-
-
-def get_expenses_dicts(year_code, force=False) -> List[dict]:
-    return get_expenses_df(year_code, force).replace({nan: None}).to_dict("records")
-
-
 def get_expenses(year_code, force=False) -> List[Expense]:
-    exp_dicts = get_expenses_dicts(year_code, force)
+    exp_dicts = (
+        pd.read_csv(StringIO(get_expenses_csv(year_code, force)), na_values=None)
+        .replace({nan: None})
+        .to_dict("records")
+    )
     min_date = None 
     max_date = None
     expenses = []
@@ -485,8 +489,10 @@ def get_expenses(year_code, force=False) -> List[Expense]:
                 pp(expense)
                 raise e
 
-    print(f"Found {len(expenses)} expenses for year code '{year_code}' "
-          f"from {min_date} to {max_date}.")
+    print(
+        f"Found {len(expenses)} expenses for year code '{year_code}' "
+        f"from {min_date} to {max_date}."
+    )
     return expenses
 
 
@@ -508,7 +514,7 @@ def order_by_group(expenses: List[Expense]) -> dict:
     return order
 
 
-def generate_group_thresholds(expenses, top_percentile, minimum_count):
+def generate_group_thresholds(expenses: List[Expense], top_percentile: int, minimum_count: int) -> Dict[str, float]:
     ordered = order_by_group(expenses)
     thresholds = {}
     for group, exp_list in ordered.items():
@@ -518,7 +524,7 @@ def generate_group_thresholds(expenses, top_percentile, minimum_count):
     return thresholds
 
 
-def generate_travel_thresholds(expenses: List[Expense], top_percentile, minimum_count):
+def generate_travel_thresholds(expenses: List[Expense], top_percentile: int, minimum_count: int) -> Dict[str, float]:
     per_unit_values = {}
     for e in expenses:
         
@@ -545,20 +551,6 @@ def generate_travel_thresholds(expenses: List[Expense], top_percentile, minimum_
     return thresholds
             
 
-def get_travel_thresholds() -> dict:
-    global _TRAVEL_THRESHOLDS
-    if _TRAVEL_THRESHOLDS is None:
-        _TRAVEL_THRESHOLDS = get_json_from_s3(S3_BUCKET, TRAVEL_THRESHOLDS_KEY)
-    return _TRAVEL_THRESHOLDS
-
-
-def get_group_thresholds() -> dict:
-    global _GROUP_THRESHOLDS
-    if _GROUP_THRESHOLDS is None:
-        _GROUP_THRESHOLDS = get_json_from_s3(S3_BUCKET, GROUP_THRESHOLDS_KEY)
-    return _GROUP_THRESHOLDS
-
-
 def date_range(expenses: List[Expense]) -> str:
     min_date = None
     max_date = None
@@ -568,51 +560,19 @@ def date_range(expenses: List[Expense]) -> str:
     return f"{min_date} - {max_date}"
 
 
-def get_year_codes_range(from_year: int, to_year: int):
+def get_year_codes_range(from_year: int, to_year: int) -> List[str]:
     return [
         "{}_{}".format(str(year)[-2:], str(year + 1)[-2:]) 
         for year in range(from_year, to_year)
     ]
 
 
-def save_new_thresholds(top_percentile, save_s3=False, save_local=False):
-    year_codes = get_year_codes_range(2020, 2021)
-    expenses = get_mulityear_expenses(year_codes, force=False)
-    travel_th = generate_travel_thresholds(expenses, top_percentile, 20)
-    group_th = generate_group_thresholds(expenses, top_percentile, 20)
-
-    if save_s3:
-        save_json_to_s3(travel_th, S3_BUCKET, TRAVEL_THRESHOLDS_KEY, indent=2)
-        save_json_to_s3(group_th, S3_BUCKET, GROUP_THRESHOLDS_KEY, indent=2)
-
-    if save_local:
-        with open(GROUP_THRESHOLDS_KEY, "w") as f:
-            json.dump(group_th, f)
-
-        with open(TRAVEL_THRESHOLDS_KEY, "w") as f:
-            json.dump(travel_th, f)
+def get_expenses_since_year(from_year: int) -> List[Expense]:
+    year_codes = get_year_codes_range(from_year, datetime.utcnow().year)
+    return get_mulityear_expenses(year_codes, force=True)
 
 
-def get_expense_queue() -> List[Expense]:
-    json_list = get_json_from_s3(S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-    return [Expense(exp_data) for exp_data in json_list]
-
-
-def save_expense_queue(expenses):
-    queue = [e.data for e in expenses]
-    save_json_to_s3(queue, S3_BUCKET, S3_EXPENSE_QUEUE_KEY)
-
-
-def add_to_exception_queue(expense):
-    print(f"Placing expense in exception queue: {expense}")
-    exception_queue = get_json_from_s3(S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
-    exception_queue.append(expense.data)
-    save_json_to_s3(exception_queue, S3_BUCKET, S3_EXCEPTION_QUEUE_KEY)
-
-
-def get_previous_claim_numbers() -> set:
-    return set(get_list_from_s3(S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY))
-
-
-def save_previous_claim_numbers(claim_numbers):
-    save_list_to_s3(claim_numbers, S3_BUCKET, S3_PREV_CLAIM_NUMBERS_KEY)
+if __name__ == "__main__":
+    expenses = get_expenses("22_23", force=True)
+    for e in expenses:
+        print(e.expense_text())

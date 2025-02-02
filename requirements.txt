@@ -1,4 +1,2 @@
-pandas==1.3.4
-python-twitter-v2==0.7.2
-testresources
-requests
+pandas==2.1.2
+tweepy==4.14.0

@@ -1,5 +1,50 @@
-__pycache__/
+# App specific
 csv_cache/
 packages/
 test*
 output.json
+
+# Python specific
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.pyw
+*.pyc
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+*.env
+
+# IDE or editor settings
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs and debug files
+*.log
+*.bak
+*.tmp
+
+# AWS Lambda specific
+# Dependencies and zip files for deployment
+packages/
+*.zip
+# SAM (Serverless Application Model) build artifacts
+.aws-sam/
+
+# Terraform specific
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfplan
