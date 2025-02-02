@@ -17,7 +17,7 @@ mkdir -p "$BUILD_DIR"
 cp -R src/* "$BUILD_DIR/"
 
 # Install the required packages into the build directory
-python3 -m pip install -r requirements.txt --target="$BUILD_DIR/"
+python -m pip install -r requirements.txt --target="$BUILD_DIR/"
 
 # Ensure the output directory exists
 mkdir -p "$OUT_DIR"
