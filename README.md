@@ -1,4 +1,6 @@
-### MP Expenses Twitter ###
+## MP Expenses Twitter ##
+![image](https://github.com/user-attachments/assets/f187537d-7b6a-4795-a6b8-fc600266bbb9)
+
 
 ## Summary ##
 This project tweets out public UK MP expense data. You can find the twitter account at [@MPExpensesUK](https://x.com/MPExpensesUK)
