@@ -27,7 +27,7 @@ def get_text_from_s3(bucket, key) -> str:
     try:
         s3.download_fileobj(Bucket=bucket, Key=key, Fileobj=bytes_buffer)
     except ClientError as e:
-        if e.response['Error']['Code'] == "404":
+        if e.response["Error"]["Code"] == "404":
             return None
         raise
     seconds = round((datetime.utcnow() - start).total_seconds(), 3)
@@ -64,10 +64,8 @@ def save_json_to_s3(data, bucket, key, indent=2, compact=False, encoding="utf-8"
     else:
         seperators = (", ", ": ")
     json_string = json.dumps(
-        data, 
-        indent=indent, 
-        ensure_ascii=False, 
-        separators=seperators)
+        data, indent=indent, ensure_ascii=False, separators=seperators
+    )
     save_text_to_s3(json_string, bucket, key)
 
 

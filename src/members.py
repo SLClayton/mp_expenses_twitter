@@ -10,6 +10,7 @@ members_cache = {}
 
 _MEMBERS_OF_NOTE_IDS = None
 
+
 class Member:
 
     def __init__(self, data):
@@ -21,7 +22,8 @@ class Member:
         self.party_abbr = data["latestParty"]["abbreviation"]
 
         self.current_mp = (
-            False if data["latestHouseMembership"]["membershipStatus"] is None 
+            False
+            if data["latestHouseMembership"]["membershipStatus"] is None
             else data["latestHouseMembership"]["membershipStatus"]["statusIsActive"]
         )
 
@@ -43,7 +45,9 @@ def get_api_json(url, params=None) -> Dict[str, Any]:
 
         if resp.status_code != 200:
             retrys += 1
-            print(f"Error code {resp.status_code} while getting hitting url {url} information.")
+            print(
+                f"Error code {resp.status_code} while getting hitting url {url} information."
+            )
             if retrys < 5:
                 print("Trying again.")
                 time.sleep(3)
@@ -51,13 +55,13 @@ def get_api_json(url, params=None) -> Dict[str, Any]:
             print("Max retries done, returning None.")
             return None
         break
-    
+
     try:
         data = json.loads(resp.text)
     except Exception as e:
         print(resp.text)
         raise e
-    
+
     return data
 
 
@@ -98,10 +102,12 @@ def map_member_ids(member_names: List[str]) -> Dict[str, int]:
             member = matching_members[0]
             member_ids[member.name] = member.id
         else:
-            print(f"Found {len(matching_members)} members that match the "
-                  f"name '{name}'. {matching_members}")
+            print(
+                f"Found {len(matching_members)} members that match the "
+                f"name '{name}'. {matching_members}"
+            )
             member_ids[name] = None
-    
+
     return member_ids
 
 

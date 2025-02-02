@@ -6,7 +6,7 @@ from aws_tools import *
 TWITTER_KEYS = get_secret_dict(os.getenv("MPE_TWITTER_SECRET_NAME"))
 
 
-class TwitterClient():
+class TwitterClient:
 
     def __init__(self):
         self.client = tweepy.Client(
@@ -14,7 +14,7 @@ class TwitterClient():
             consumer_key=TWITTER_KEYS["API_KEY"],
             consumer_secret=TWITTER_KEYS["API_KEY_SECRET"],
             access_token=TWITTER_KEYS["ACCESS_TOKEN"],
-            access_token_secret=TWITTER_KEYS["ACCESS_TOKEN_SECRET"]
+            access_token_secret=TWITTER_KEYS["ACCESS_TOKEN_SECRET"],
         )
 
     def tweet(self, text: str) -> dict:

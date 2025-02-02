@@ -10,14 +10,22 @@ def pp(d: dict) -> None:
     print(json.dumps(d, indent=2, default=str, ensure_ascii=False))
 
 
-def save_json(d, file_path: str = "output.json", indent: int = 2, compact: bool = False, encoding: str = "utf-8") -> None:
+def save_json(
+    d,
+    file_path: str = "output.json",
+    indent: int = 2,
+    compact: bool = False,
+    encoding: str = "utf-8",
+) -> None:
     if compact:
         seperators = (",", ":")
         indent = None
     else:
         seperators = (", ", ": ")
     with open(file_path, "w", encoding=encoding) as f:
-        json.dump(d, f, indent=indent, ensure_ascii=False, separators=seperators, default=str)
+        json.dump(
+            d, f, indent=indent, ensure_ascii=False, separators=seperators, default=str
+        )
 
 
 def load_json(file_path: str) -> Dict[str, Any]:
@@ -58,7 +66,7 @@ def shard(input_list: List[Any], max_shard_size: int) -> List[List[Any]]:
     shards = []
     i = 0
     while i < len(input_list):
-        shards.append(input_list[i:i+max_shard_size])
+        shards.append(input_list[i : i + max_shard_size])
         i += max_shard_size
     return shards
 
@@ -72,7 +80,7 @@ def shard_n(input_list: List[Any], n_shards: int) -> List[List[Any]]:
     for input in input_list:
         shards[shard_index].append(input)
 
-        if (shard_index == len(shards) - 1):
+        if shard_index == len(shards) - 1:
             shard_index = 0
         else:
             shard_index += 1

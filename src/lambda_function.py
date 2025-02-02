@@ -51,12 +51,12 @@ def lambda_handler(event, context):
         print(msg)
         e.with_traceback()
         return {"statusCode": 500, "error": msg}
-    
+
     # Save to DB
     item = {
         "expense_id": expense.claim_number,
         "tweet_id": tweet["id"] if tweet else None,
-        "when_created": datetime.utcnow().isoformat()
+        "when_created": datetime.utcnow().isoformat(),
     }
     if tweet is None:
         print("Tweet came back NULL.")

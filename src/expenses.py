@@ -20,7 +20,12 @@ from aws_tools import *
 log = getLogger()
 
 CACHE_DIR = "../csv_cache"
-FIRST_CLASS_TYPES_WHITELIST = ["FIRST RETURN", "FIRST SINGLE", "BUSINESS / CLUB RETURN", "BUSINESS / CLUB SINGLE"]
+FIRST_CLASS_TYPES_WHITELIST = [
+    "FIRST RETURN",
+    "FIRST SINGLE",
+    "BUSINESS / CLUB RETURN",
+    "BUSINESS / CLUB SINGLE",
+]
 
 EXPECTED_FIELDS = [
     "Parliamentary ID",
@@ -46,7 +51,7 @@ EXPECTED_FIELDS = [
     "Status",
     "Reason If Not Paid",
     "Supply Month",
-    "Supply Period"
+    "Supply Period",
 ]
 
 
@@ -138,11 +143,13 @@ class Expense:
         )
 
     def group(self) -> str:
-        return "/".join([
-            str(self.category).strip(), 
-            str(self.expense_type).strip(), 
-            str(self.short_desc).strip()
-            ]).upper()
+        return "/".join(
+            [
+                str(self.category).strip(),
+                str(self.expense_type).strip(),
+                str(self.short_desc).strip(),
+            ]
+        ).upper()
 
     @cached_property
     def member(self) -> Optional[Member]:
@@ -172,7 +179,9 @@ class Expense:
         ppn = self.price_per_night()
 
         if None not in [ppm, ppn]:
-            print(f"WARNING: Expense {self.claim_number} has both PPM ({ppm}) and a PPN ({ppn}) value. {self}")
+            print(
+                f"WARNING: Expense {self.claim_number} has both PPM ({ppm}) and a PPN ({ppn}) value. {self}"
+            )
             return None
 
         if ppm is not None:
@@ -189,9 +198,9 @@ class Expense:
         return datestring
 
     def is_rail_booking_fee(self) -> bool:
-        return (
-            self.is_rail() and 
-            ("BOOKING FEE" in str(self.short_desc).upper() or self.amount_claimed == 1))
+        return self.is_rail() and (
+            "BOOKING FEE" in str(self.short_desc).upper() or self.amount_claimed == 1
+        )
 
     def is_first_class(self) -> bool:
         travel_type = str(self.travel_type).upper().strip()
@@ -200,8 +209,10 @@ class Expense:
 
         keywords = ["FIRST", "BUSINESS", "CLUB", "PREMIUM"]
         if any(word in travel_type for word in keywords):
-            log.warn(f"Expense {self.claim_number} travel type '{travel_type}' doesn't appear in "
-                     f"{FIRST_CLASS_TYPES_WHITELIST} but has keyword match from {keywords}." )
+            log.warn(
+                f"Expense {self.claim_number} travel type '{travel_type}' doesn't appear in "
+                f"{FIRST_CLASS_TYPES_WHITELIST} but has keyword match from {keywords}."
+            )
         return False
 
     def is_air_travel(self) -> bool:
@@ -227,19 +238,21 @@ class Expense:
 
     def is_transport_expense(self) -> bool:
         return self.expense_type.upper() in [
-            "MILEAGE - CAR", 
+            "MILEAGE - CAR",
             "MILEAGE - MOTORCYCLE",
             "MILEAGE - BICYCLE",
-            "AIR TRAVEL", 
-            "RAIL", 
-            "TAXI"]
+            "AIR TRAVEL",
+            "RAIL",
+            "TAXI",
+        ]
 
     def is_overnight_expense(self) -> bool:
         return self.expense_type.upper() in [
-            "HOTEL - UK NOT LONDON", 
-            "HOTEL - LONDON", 
+            "HOTEL - UK NOT LONDON",
+            "HOTEL - LONDON",
             "HOTEL - EUROPEAN",
-            "HOTEL - LATE NIGHT"]
+            "HOTEL - LATE NIGHT",
+        ]
 
     def claim_text(self, fetch_member=True) -> str:
         if not fetch_member or self.member is None:
@@ -250,7 +263,8 @@ class Expense:
         return (
             f"Claim {self.claim_number}\n\n"
             f"{self.date_string()} - {name_str}\n\n"
-            f"{self.expense_text()}")
+            f"{self.expense_text()}"
+        )
 
     def first_class_claim_text(self, fetch_member=True) -> str:
         ticket_type = str(self.travel_type).strip().lower()
@@ -282,10 +296,11 @@ class Expense:
         if None not in [self.travel_from, self.travel_to]:
             destinations = " from {} to {}".format(self.travel_from, self.travel_to)
 
-
-        return (f"{name_str} claimed {self.amount_claimed_str()} "
-                f"for a {ticket_type} ticket{traveller}{transport}{destinations}."
-                f"\n\n{self.date_string()} - {self.claim_number}")
+        return (
+            f"{name_str} claimed {self.amount_claimed_str()} "
+            f"for a {ticket_type} ticket{traveller}{transport}{destinations}."
+            f"\n\n{self.date_string()} - {self.claim_number}"
+        )
 
     def expense_text(self) -> str:
 
@@ -316,7 +331,11 @@ class Expense:
         text += "a dependant's" if self.is_dependant_travel() else ""
 
         # Show how far they travelled
-        text += " travel" if self.mileage is None else " travelling {} miles".format(self.mileage)
+        text += (
+            " travel"
+            if self.mileage is None
+            else " travelling {} miles".format(self.mileage)
+        )
 
         # Use journey if values given
         if None not in [self.travel_from, self.travel_to]:
@@ -329,7 +348,8 @@ class Expense:
             "MILEAGE - MOTORCYCLE": " by motorcycle",
             "AIR TRAVEL": " by air",
             "RAIL": " by train",
-            "TAXI": " by taxi"}
+            "TAXI": " by taxi",
+        }
         text += suffix_map.get(self.expense_type.upper(), "")
 
         # Show seat class if train or plane
@@ -353,7 +373,7 @@ class Expense:
         accom_map = {
             "HOTEL - UK NOT LONDON": "stay at a non-London hotel",
             "HOTEL - LONDON": "stay at a London hotel",
-            "HOTEL - EUROPEAN": "stay at a European hotel"
+            "HOTEL - EUROPEAN": "stay at a European hotel",
         }
         text += accom_map.get(self.expense_type.upper(), "hotel stay")
 
@@ -431,7 +451,7 @@ def get_expenses_csv(year_code, force=False) -> str:
             return csv_text
 
     # Go download file
-    #url = f"https://www.theipsa.org.uk/api/download?type=individualExpenses&year={year_code}"
+    # url = f"https://www.theipsa.org.uk/api/download?type=individualExpenses&year={year_code}"
     url = f"https://www.theipsa.org.uk/api/download?type=individualBusinessCosts&year={year_code}"
     resp = None
     while resp is None:
@@ -439,9 +459,11 @@ def get_expenses_csv(year_code, force=False) -> str:
             print(f"Attempting to get {year_code} claim data from {url}")
             start = datetime.utcnow()
             resp = requests.get(url)
-            seconds = (datetime.utcnow()-start).total_seconds()
+            seconds = (datetime.utcnow() - start).total_seconds()
         except Exception as e:
-            print(f"Exception {e} trying to get claims data for code {year_code}, trying again in 3 seconds.")
+            print(
+                f"Exception {e} trying to get claims data for code {year_code}, trying again in 3 seconds."
+            )
             time.sleep(3)
             continue
 
@@ -462,7 +484,7 @@ def get_expenses(year_code, force=False) -> List[Expense]:
         .replace({nan: None})
         .to_dict("records")
     )
-    min_date = None 
+    min_date = None
     max_date = None
     expenses = []
 
@@ -514,20 +536,24 @@ def order_by_group(expenses: List[Expense]) -> dict:
     return order
 
 
-def generate_group_thresholds(expenses: List[Expense], top_percentile: int, minimum_count: int) -> Dict[str, float]:
+def generate_group_thresholds(
+    expenses: List[Expense], top_percentile: int, minimum_count: int
+) -> Dict[str, float]:
     ordered = order_by_group(expenses)
     thresholds = {}
     for group, exp_list in ordered.items():
         amounts = [float(e.amount_claimed) for e in exp_list if e.amount_claimed > 0]
         if len(amounts) >= minimum_count:
-            thresholds[group] = round(percentile(amounts, 100-top_percentile), 3)
+            thresholds[group] = round(percentile(amounts, 100 - top_percentile), 3)
     return thresholds
 
 
-def generate_travel_thresholds(expenses: List[Expense], top_percentile: int, minimum_count: int) -> Dict[str, float]:
+def generate_travel_thresholds(
+    expenses: List[Expense], top_percentile: int, minimum_count: int
+) -> Dict[str, float]:
     per_unit_values = {}
     for e in expenses:
-        
+
         if e.price_per_night() is not None:
             unit = e.price_per_night()
         elif e.price_per_mile() is not None:
@@ -541,15 +567,14 @@ def generate_travel_thresholds(expenses: List[Expense], top_percentile: int, min
         except KeyError:
             per_unit_values[exp_type] = [unit]
 
-
     thresholds = {}
     for exp_type, value_list in per_unit_values.items():
         amounts = [float(x) for x in value_list]
         if len(amounts) >= minimum_count:
-            thresholds[exp_type] = round(percentile(amounts, 100-top_percentile), 3)
+            thresholds[exp_type] = round(percentile(amounts, 100 - top_percentile), 3)
 
     return thresholds
-            
+
 
 def date_range(expenses: List[Expense]) -> str:
     min_date = None
@@ -562,7 +587,7 @@ def date_range(expenses: List[Expense]) -> str:
 
 def get_year_codes_range(from_year: int, to_year: int) -> List[str]:
     return [
-        "{}_{}".format(str(year)[-2:], str(year + 1)[-2:]) 
+        "{}_{}".format(str(year)[-2:], str(year + 1)[-2:])
         for year in range(from_year, to_year)
     ]
 
