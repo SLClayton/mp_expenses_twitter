@@ -1,9 +1,9 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import os
 import json
 import random
 from datetime import datetime, date
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 def pp(d: dict) -> None:
@@ -14,17 +14,12 @@ def save_json(
     d,
     file_path: str = "output.json",
     indent: int = 2,
-    compact: bool = False,
+    sort: bool = False,
     encoding: str = "utf-8",
 ) -> None:
-    if compact:
-        seperators = (",", ":")
-        indent = None
-    else:
-        seperators = (", ", ": ")
     with open(file_path, "w", encoding=encoding) as f:
         json.dump(
-            d, f, indent=indent, ensure_ascii=False, separators=seperators, default=str
+            d, f, indent=indent, ensure_ascii=False, sort_keys=sort, default=str
         )
 
 
@@ -62,32 +57,6 @@ def money_string(money: Decimal) -> str:
     return "{}£{:,.2f}".format(prefix, abs(money))
 
 
-def shard(input_list: List[Any], max_shard_size: int) -> List[List[Any]]:
-    shards = []
-    i = 0
-    while i < len(input_list):
-        shards.append(input_list[i : i + max_shard_size])
-        i += max_shard_size
-    return shards
-
-
-def shard_n(input_list: List[Any], n_shards: int) -> List[List[Any]]:
-    shards = []
-    for i in range(n_shards):
-        shards.append([])
-
-    shard_index = 0
-    for input in input_list:
-        shards[shard_index].append(input)
-
-        if shard_index == len(shards) - 1:
-            shard_index = 0
-        else:
-            shard_index += 1
-
-    return shards
-
-
 def rndstring(n: int) -> str:
     alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return "".join(random.choice(alphabet) for i in range(n))
@@ -100,3 +69,35 @@ def parse_date(date_string: str) -> date:
         except ValueError:
             pass
     raise ValueError(f"no valid date format found for string '{date_string}'")
+
+
+def get_year_codes() -> List[str]:
+    this_year = datetime.utcnow().year
+    next_next_year = this_year + 2
+    next_year = this_year + 1
+    last_year = this_year - 1
+    last_last_year = this_year - 2
+
+    return [
+        "{}_{}".format(str(next_year)[-2:], str(next_next_year)[-2:]),
+        "{}_{}".format(str(this_year)[-2:], str(next_year)[-2:]),
+        "{}_{}".format(str(last_year)[-2:], str(this_year)[-2:]),
+        "{}_{}".format(str(last_last_year)[-2:], str(last_year)[-2:]),
+    ]
+
+
+def get_year_codes_range(from_year: int, to_year: int) -> List[str]:
+    return [
+        "{}_{}".format(str(year)[-2:], str(year + 1)[-2:])
+        for year in range(from_year, to_year)
+    ]
+
+def positive_decimal_or_none(input: Any) -> Optional[Decimal]:
+    try:
+        d_val = Decimal(str(input))
+        if d_val > 0:
+            return d_val
+    except (InvalidOperation, ValueError, TypeError):
+        pass
+    return None
+

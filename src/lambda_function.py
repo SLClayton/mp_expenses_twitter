@@ -2,9 +2,10 @@ from datetime import datetime, time, timedelta
 import random
 from zoneinfo import ZoneInfo
 
-from expenses import get_expenses_since_year, exp_list_str
+from expenses import exp_list_str
+from expense_importer import get_expenses_since_year
+from expense_filter import expenses_filter
 from twitter_tools import TwitterClient
-from expense_saver import expenses_filter
 from aws_tools import save_item_to_db, item_in_db
 from tools import pp
 
@@ -29,7 +30,8 @@ def lambda_handler(event, context):
 
     # Filter
     min_date = (now - timedelta(weeks=52)).date()
-    expenses = [e for e in expenses_filter(expenses) if e.date >= min_date]
+    max_date = (now - timedelta(weeks=8)).date()
+    expenses = [e for e in expenses_filter(expenses) if max_date >= e.date >= min_date]
     print(f"Found {exp_list_str(expenses)} after filters.")
 
     # Choose randomly from remaining
